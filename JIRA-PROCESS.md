@@ -447,8 +447,8 @@ For each dev-context file with `Status: waiting for PR review`:
 
 4. **Archive the dev-context file** — move it so it never surfaces in future sessions:
    ```bash
-   mkdir -p dev-context/archive
-   mv dev-context/{jira_project_key}-XX-short-description.md dev-context/archive/
+   mkdir -p {project_dir}/dev-context/archive
+   mv {project_dir}/dev-context/{jira_project_key}-XX-short-description.md {project_dir}/dev-context/archive/
    ```
 
 5. If still open — leave as-is and continue.
