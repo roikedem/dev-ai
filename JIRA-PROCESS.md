@@ -79,7 +79,7 @@ jql: "project={jira_project_key} AND assignee=\"{jira_assignee}\" ORDER BY creat
 fields: "summary,status,issuetype,priority"
 ```
 
-Work through them in priority order (High → Medium → Low). Pick one, then follow the steps below.
+Work through them in priority order (High → Medium → Low). Before picking one, **filter out any issue that has a `~/dev-context/` file with `Status: waiting for user`** — those are blocked and must not be touched until the user responds. Pick the highest-priority remaining issue, then follow the steps below.
 
 ---
 
