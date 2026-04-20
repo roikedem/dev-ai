@@ -259,6 +259,10 @@ gh pr create --title "{jira_project_key}-XX: brief description" --body "..."
 - PR body should reference the Jira issue key and summarize what changed and why.
 - For submodule (`{frontend_submodule}/`) changes, also update the submodule pointer in `{primary_repo}` and open a coordinated PR there if needed.
 
+**Transition the Jira issue to "Review":**
+
+**Tool:** `mcp__atlassian__getTransitionsForJiraIssue` to find the "Review" transition ID, then `mcp__atlassian__transitionJiraIssue`.
+
 **Update the `~/dev-context` file:**
 
 ```
@@ -393,7 +397,11 @@ For each PR with actionable comments:
      --field body="Addressed in <commit sha> — brief explanation of what changed."
    ```
 
-9. **Update the `~/dev-context` file:**
+9. **Transition the Jira issue back to "Review":**
+
+   **Tool:** `mcp__atlassian__getTransitionsForJiraIssue` then `mcp__atlassian__transitionJiraIssue`.
+
+10. **Update the `~/dev-context` file:**
 
 ```
 ## Status: waiting for PR review
@@ -467,7 +475,7 @@ For each file in `~/dev-context/` with `Status: waiting for PR review`:
 | 4 | Solve | edit code |
 | 5 | Test + after screenshot | `ddev drush cr` / `npm run build` / browser |
 | 6 | Commit | `git commit -m "{jira_project_key}-XX: ..."` |
-| 7 | PR | `gh pr create` |
+| 7 | PR + move Jira to Review | `gh pr create` + `mcp__atlassian__transitionJiraIssue` |
 | 8 | Comment on issue | `mcp__atlassian__addCommentToJiraIssue` |
 | 9 | Return to default branch, pick up next issue | `git checkout {default_branch}` |
 | 10 | Restore DB (if schema changed) | `{restore_command}` |
