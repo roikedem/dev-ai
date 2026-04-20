@@ -133,7 +133,7 @@ git checkout -b {jira_project_key}-XX-short-description
 - For each affected URL, take a screenshot of the relevant section using the helper script:
 
 ```bash
-node scripts/screenshot.js "<url>" "<css-selector>" docs/screenshots/{jira_project_key}-XX/before.png
+node ~/projects/dev-ai/scripts/screenshot.js "<url>" "<css-selector>" docs/screenshots/{jira_project_key}-XX/before.png
 ```
 
 - Create `docs/screenshots/{jira_project_key}-XX/index.html` documenting the context:
@@ -221,7 +221,7 @@ When checking this issue in future sessions — only act if there is new activit
 **Take an "after" screenshot:**
 
 ```bash
-node scripts/screenshot.js "<url>" "<css-selector>" docs/screenshots/{jira_project_key}-XX/after.png
+node ~/projects/dev-ai/scripts/screenshot.js "<url>" "<css-selector>" docs/screenshots/{jira_project_key}-XX/after.png
 ```
 
 Update `docs/screenshots/{jira_project_key}-XX/index.html` — fill in the After section:
