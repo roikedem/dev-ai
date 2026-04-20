@@ -1,6 +1,6 @@
 # Jira Issue Resolution Process
 
-> **Configuration:** Project-specific values are defined in `.jira-process.json`.
+> **Configuration:** Project-specific values are defined in `.jira-process.json` in the project directory.
 > Read that file at the start of each session to resolve `{placeholders}` below.
 
 ## Entry Point
@@ -35,6 +35,12 @@ echo "*/5 * * * * $(pwd)/scripts/claude-jira-cron.sh /path/to/project"
 
 The script (`scripts/claude-jira-cron.sh`) handles locking, timestamped logging, and locating `claude` via PATH.
 
+Ensure `gh` is authenticated as the Claude agent account:
+
+```bash
+gh auth switch --user ClaudeCodeRoiAgent
+```
+
 For before/after screenshots, install Puppeteer once per machine:
 
 ```bash
@@ -45,11 +51,15 @@ npm install puppeteer
 
 ## Session Start: Read Dev Context First
 
-Before doing anything else, read all files in `dev-context/`. Each file is named after a branch (`{jira_project_key}-XX-short-description.md`) and describes the current state of that work.
+Before doing anything else, read all files in `dev-context/` (excluding `dev-context/archive/`). Each file is named after a branch (`{jira_project_key}-XX-short-description.md`) and describes the current state of that work.
 
-- If a file says **"waiting for response"** — check whether the response has now arrived (new PR comment, Jira comment, etc.). If yes, proceed from where it left off. If still waiting, skip that branch.
-- If a file describes **in-progress work** — resume it before picking up new issues.
-- Only start a new issue if no existing work needs attention.
+- **`Status: done`** — skip entirely. Already fully handled.
+- **`Status: waiting for PR review`** — no action needed here; the PR Review Loop (section E) handles merged PRs.
+- **`Status: waiting for user`** — skip. A comment was already posted on Jira. Do **not** comment again until the issue has new activity (a reply, status change, or new comment since the "Blocked since" timestamp).
+- **`Status: in progress — addressing PR feedback`** — resume this work first.
+- **`Status: in progress`** — resume this work before picking up new issues.
+
+Multiple branches can be in-flight at the same time. **Always verify which branch you are on before editing any file.** Never commit work from one issue onto another branch.
 
 ---
 
@@ -63,10 +73,10 @@ Query Jira for open issues assigned to you:
 
 **JQL:** `project={jira_project_key} AND assignee="{jira_assignee}" ORDER BY created DESC`
 
-**Tool:** `mcp__atlassian__jira_get`
+**Tool:** `mcp__atlassian__searchJiraIssuesUsingJql`
 ```
-path: /rest/api/3/search/jql
-queryParams: { jql: "project={jira_project_key} AND assignee=\"{jira_assignee}\" ORDER BY created DESC", fields: "summary,status,issuetype,priority" }
+jql: "project={jira_project_key} AND assignee=\"{jira_assignee}\" ORDER BY created DESC"
+fields: "summary,status,issuetype,priority"
 ```
 
 Work through them in priority order (High → Medium → Low). Pick one, then follow the steps below.
@@ -109,7 +119,7 @@ If the issue involves any of the following, **backup the database before startin
 - Branch off `{default_branch}` of the relevant repo.
 - Use the Jira issue key in the branch name:
 
-```
+```bash
 git checkout -b {jira_project_key}-XX-short-description
 ```
 
@@ -168,6 +178,29 @@ Step 4 — solving
 
 ---
 
+## 3b. If the Issue Cannot Be Solved
+
+If you are blocked — missing context, requires a decision, or beyond current scope:
+
+1. Post **one** comment on the Jira issue explaining what is blocking you and what is needed. @mention the user: `{jira_user_mention}`. Do not post this comment again in future sessions.
+
+2. Update the dev-context file:
+   ```
+   ## Status: waiting for user
+
+   ## Blocked since
+   <ISO 8601 timestamp>
+
+   ## Why blocked
+   <one paragraph — what is missing or what decision is needed>
+   ```
+
+3. Return to `{default_branch}` and pick up a different issue.
+
+When checking this issue in future sessions — only act if there is new activity (a reply or status change since the "Blocked since" timestamp). Otherwise skip it entirely.
+
+---
+
 ## 4. Solve the Issue
 
 - Make the minimal change that satisfies the issue. Don't expand scope.
@@ -178,8 +211,8 @@ Step 4 — solving
 
 ## 5. Test
 
-- Write testplan - update it as a comment on the Jira issue
-- Run tests from the testplan
+- Write testplan — update it as a comment on the Jira issue.
+- Run tests from the testplan.
 - Run all relevant test commands defined in `.jira-process.json` (`test_commands.backend`, `test_commands.frontend`).
 - Exercise the affected path manually and verify in the browser.
 - Update testplan results on the Jira issue comment.
@@ -206,7 +239,7 @@ Update `docs/screenshots/{jira_project_key}-XX/index.html` — fill in the After
 
 - Include the Jira issue key at the start of the commit message:
 
-```
+```bash
 git commit -m "{jira_project_key}-XX: brief description of what and why"
 ```
 
@@ -218,7 +251,7 @@ git commit -m "{jira_project_key}-XX: brief description of what and why"
 
 - Push the feature branch only — do NOT push to `{default_branch}`. The user reviews and merges the PR:
 
-```
+```bash
 git push -u origin {jira_project_key}-XX-short-description
 gh pr create --title "{jira_project_key}-XX: brief description" --body "..."
 ```
@@ -254,17 +287,13 @@ gh pr create --title "{jira_project_key}-XX: brief description" --body "..."
 
 ---
 
-## 9. Return to Default Branch
+## 9. Return to Default Branch and Pick Up Next Issue
 
 ```bash
 git checkout {default_branch}
 ```
 
-**Update the dev-context file** to mark it done:
-
-```
-## Status: done — PR open, awaiting merge
-```
+Do not wait for the PR to be reviewed — return to the **Finding Issues to Solve** step and pick up the next assigned issue immediately.
 
 ---
 
@@ -292,7 +321,7 @@ powershell.exe -c "Start-Process '<PR URL>'"
 
 ## PR Review Loop
 
-Run this separately (or as a follow-up after completing new issues) to handle feedback left on open PRs.
+Run this at the start of each session (after reading dev-context) to handle feedback on open PRs and detect merged ones.
 
 ### A. List Open PRs
 
@@ -315,7 +344,7 @@ A comment needs action if:
 - Claude has not yet replied to it (no subsequent commit or reply comment referencing it), AND
 - It is not marked as resolved (for review comments: `position` is not null and no reply exists)
 
-If no actionable comments exist on any PR — stop. Nothing to do.
+If no actionable comments exist on any PR — move on to section E (merged PR check), then check Jira for new issues.
 
 ### C. Address Each Comment
 
@@ -341,18 +370,18 @@ For each PR with actionable comments:
    git checkout <headRefName>
    ```
 
-2. **Read the full comment in context** — understand what change is being requested before touching code.
+3. **Read the full comment in context** — understand what change is being requested before touching code.
 
-3. **Make the fix** — minimal change that satisfies the comment. Don't expand scope.
+4. **Make the fix** — minimal change that satisfies the comment. Don't expand scope.
 
-4. **Test** — run relevant test commands from `.jira-process.json`.
+5. **Test** — run relevant test commands from `.jira-process.json`.
 
-5. **Commit**, referencing the PR:
+6. **Commit**, referencing the PR:
    ```bash
    git commit -m "{jira_project_key}-XX: address PR feedback — brief description"
    ```
 
-6. **Push:**
+7. **Push:**
    ```bash
    git push
    ```
@@ -384,7 +413,7 @@ git checkout {default_branch}
 
 ---
 
-### E. Check for Merged PRs → Move Jira to "In Review"
+### E. Check for Merged PRs → Move Jira to Done
 
 For each dev-context file with `Status: waiting for PR review`:
 
@@ -393,9 +422,9 @@ For each dev-context file with `Status: waiting for PR review`:
    gh pr view <number> --repo {github_repo} --json state,mergedAt
    ```
 
-2. **If merged** — transition the Jira issue to **In Review**:
+2. **If merged** — transition the Jira issue to **Done**:
 
-   **Tool:** `mcp__atlassian__getTransitionsForJiraIssue` to find the "In Review" transition ID, then `mcp__atlassian__transitionJiraIssue`.
+   **Tool:** `mcp__atlassian__getTransitionsForJiraIssue` to find the "Done" transition ID, then `mcp__atlassian__transitionJiraIssue`.
 
 3. **Post before/after screenshots as a Jira comment:**
 
@@ -416,15 +445,15 @@ For each dev-context file with `Status: waiting for PR review`:
      !before.png|thumbnail!  →  !after.png|thumbnail!
      ```
 
-4. **Update the dev-context file:**
-   ```
-   ## Status: in review — PR merged, awaiting QA/sign-off
-   
-   ## Merged at
-   <ISO 8601 timestamp from mergedAt>
+4. **Archive the dev-context file** — move it so it never surfaces in future sessions:
+   ```bash
+   mkdir -p dev-context/archive
+   git mv dev-context/{jira_project_key}-XX-short-description.md dev-context/archive/
+   git commit -m "{jira_project_key}-XX: archive dev-context — PR merged and issue done"
+   git push
    ```
 
-4. If still open — leave as-is and continue.
+5. If still open — leave as-is and continue.
 
 ---
 
@@ -432,16 +461,17 @@ For each dev-context file with `Status: waiting for PR review`:
 
 | Step | Action | Tool / Command |
 |------|--------|----------------|
-| 0 | Backup DB (if schema/entity changes) | `ddev export-db --file=~/db-backups/KNS-XX-....sql.gz` |
+| 0 | Backup DB (if schema/entity changes) | `{backup_command}` |
 | 1 | Read issue | `mcp__atlassian__getJiraIssue` |
 | 2 | Move to In Progress | `mcp__atlassian__transitionJiraIssue` |
-| 3 | Create branch | `git checkout -b KNS-XX-...` |
+| 3 | Create branch + before screenshot | `git checkout -b {jira_project_key}-XX-...` |
+| 3b | Blocked → comment once + mark waiting | `mcp__atlassian__addCommentToJiraIssue` |
 | 4 | Solve | edit code |
-| 5 | Test | `ddev drush cr` / `npm run build` / browser |
-| 6 | Commit | `git commit -m "KNS-XX: ..."` |
+| 5 | Test + after screenshot | `ddev drush cr` / `npm run build` / browser |
+| 6 | Commit | `git commit -m "{jira_project_key}-XX: ..."` |
 | 7 | PR | `gh pr create` |
 | 8 | Comment on issue | `mcp__atlassian__addCommentToJiraIssue` |
-| 9 | Return to master | `git checkout master` |
-| 10 | Restore DB (if schema changed) | `ddev import-db --file=~/db-backups/KNS-XX-....sql.gz` |
+| 9 | Return to default branch, pick up next issue | `git checkout {default_branch}` |
+| 10 | Restore DB (if schema changed) | `{restore_command}` |
 | 11 | Open PR in Chrome | `powershell.exe -c "Start-Process '<PR URL>'"` |
-| PR loop E | PR merged → move Jira to In Review | `mcp__atlassian__transitionJiraIssue` |
+| PR loop E | PR merged → Done + screenshots + archive dev-context | `mcp__atlassian__transitionJiraIssue` |
