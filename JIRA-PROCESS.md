@@ -7,7 +7,7 @@
 
 When invoked from cron or manually without context, start here:
 
-1. Read `dev-context/` for in-progress work
+1. Read `~/dev-context/` for in-progress work
 2. Run the PR Review Loop
 3. Check Jira for new assigned issues
 
@@ -51,7 +51,7 @@ npm install puppeteer
 
 ## Session Start: Read Dev Context First
 
-Before doing anything else, read all files in `dev-context/` (excluding `dev-context/archive/`). Each file is named after a branch (`{jira_project_key}-XX-short-description.md`) and describes the current state of that work.
+Before doing anything else, read all files in `~/dev-context/` (excluding `~/dev-context/archive/`). Each file is named after a branch (`{jira_project_key}-XX-short-description.md`) and describes the current state of that work.
 
 - **`Status: done`** — skip entirely. Already fully handled.
 - **`Status: waiting for PR review`** — no action needed here; the PR Review Loop (section E) handles merged PRs.
@@ -154,10 +154,10 @@ node scripts/screenshot.js "<url>" "<css-selector>" docs/screenshots/{jira_proje
 </html>
 ```
 
-**Create the dev-context file:**
+**Create the `~/dev-context` file:**
 
 ```
-dev-context/{jira_project_key}-XX-short-description.md
+~/dev-context/{jira_project_key}-XX-short-description.md
 ```
 
 Initial content:
@@ -184,7 +184,7 @@ If you are blocked — missing context, requires a decision, or beyond current s
 
 1. Post **one** comment on the Jira issue explaining what is blocking you and what is needed. @mention the user: `{jira_user_mention}`. Do not post this comment again in future sessions.
 
-2. Update the dev-context file:
+2. Update the `~/dev-context` file:
    ```
    ## Status: waiting for user
 
@@ -259,7 +259,7 @@ gh pr create --title "{jira_project_key}-XX: brief description" --body "..."
 - PR body should reference the Jira issue key and summarize what changed and why.
 - For submodule (`{frontend_submodule}/`) changes, also update the submodule pointer in `{primary_repo}` and open a coordinated PR there if needed.
 
-**Update the dev-context file:**
+**Update the `~/dev-context` file:**
 
 ```
 ## Status: waiting for PR review
@@ -321,7 +321,7 @@ powershell.exe -c "Start-Process '<PR URL>'"
 
 ## PR Review Loop
 
-Run this at the start of each session (after reading dev-context) to handle feedback on open PRs and detect merged ones.
+Run this at the start of each session (after reading `~/dev-context/`) to handle feedback on open PRs and detect merged ones.
 
 ### A. List Open PRs
 
@@ -350,7 +350,7 @@ If no actionable comments exist on any PR — move on to section E (merged PR ch
 
 For each PR with actionable comments:
 
-1. **Immediately update the dev-context file** — before touching any code. This prevents a concurrent cron instance from picking up the same comment. Record the comment ID so it is never re-processed:
+1. **Immediately update the `~/dev-context` file** — before touching any code. This prevents a concurrent cron instance from picking up the same comment. Record the comment ID so it is never re-processed:
 
 ```
 ## Status: in progress — addressing PR feedback
@@ -393,7 +393,7 @@ For each PR with actionable comments:
      --field body="Addressed in <commit sha> — brief explanation of what changed."
    ```
 
-9. **Update the dev-context file:**
+9. **Update the `~/dev-context` file:**
 
 ```
 ## Status: waiting for PR review
@@ -415,7 +415,7 @@ git checkout {default_branch}
 
 ### E. Check for Merged PRs → Move Jira to Done
 
-For each dev-context file with `Status: waiting for PR review`:
+For each file in `~/dev-context/` with `Status: waiting for PR review`:
 
 1. **Check if the PR is merged:**
    ```bash
@@ -445,10 +445,10 @@ For each dev-context file with `Status: waiting for PR review`:
      !before.png|thumbnail!  →  !after.png|thumbnail!
      ```
 
-4. **Archive the dev-context file** — move it so it never surfaces in future sessions:
+4. **Archive the `~/dev-context` file** — move it so it never surfaces in future sessions:
    ```bash
-   mkdir -p {project_dir}/dev-context/archive
-   mv {project_dir}/dev-context/{jira_project_key}-XX-short-description.md {project_dir}/dev-context/archive/
+   mkdir -p ~/dev-context/archive
+   mv ~/dev-context/{jira_project_key}-XX-short-description.md ~/dev-context/archive/
    ```
 
 5. If still open — leave as-is and continue.
@@ -472,4 +472,4 @@ For each dev-context file with `Status: waiting for PR review`:
 | 9 | Return to default branch, pick up next issue | `git checkout {default_branch}` |
 | 10 | Restore DB (if schema changed) | `{restore_command}` |
 | 11 | Open PR in Chrome | `powershell.exe -c "Start-Process '<PR URL>'"` |
-| PR loop E | PR merged → Done + screenshots + archive dev-context | `mcp__atlassian__transitionJiraIssue` |
+| PR loop E | PR merged → Done + screenshots + archive ~/dev-context file | `mcp__atlassian__transitionJiraIssue` |
