@@ -7,6 +7,11 @@
 
 When invoked from cron or manually without context, start here:
 
+0. **Set GitHub token** — run this before any `gh` command in this session:
+   ```bash
+   export GH_TOKEN=$(cat ~/.config/claude-agent-gh-token)
+   ```
+
 1. Read `~/dev-context/` for in-progress work
 2. Run the PR Review Loop
 3. Check Jira for new assigned issues
