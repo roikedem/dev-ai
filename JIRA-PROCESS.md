@@ -294,7 +294,7 @@ gh pr create --title "{jira_project_key}-XX: brief description" --body "..."
 ## 9. Return to Default Branch and Pick Up Next Issue
 
 ```bash
-git checkout {default_branch}
+git checkout {default_branch} && git pull
 ```
 
 Do not wait for the PR to be reviewed — return to the **Finding Issues to Solve** step and pick up the next assigned issue immediately.
@@ -416,7 +416,7 @@ For each PR with actionable comments:
 ### D. Return to Default Branch
 
 ```bash
-git checkout {default_branch}
+git checkout {default_branch} && git pull
 ```
 
 ---
@@ -477,7 +477,7 @@ For each file in `~/dev-context/` with `Status: waiting for PR review`:
 | 6 | Commit | `git commit -m "{jira_project_key}-XX: ..."` |
 | 7 | PR + move Jira to Review | `gh pr create` + `mcp__atlassian__transitionJiraIssue` |
 | 8 | Comment on issue | `mcp__atlassian__addCommentToJiraIssue` |
-| 9 | Return to default branch, pick up next issue | `git checkout {default_branch}` |
+| 9 | Return to default branch + pull | `git checkout {default_branch} && git pull` |
 | 10 | Restore DB (if schema changed) | `{restore_command}` |
 | 11 | Open PR in Chrome | `powershell.exe -c "Start-Process '<PR URL>'"` |
 | PR loop E | PR merged → Done + screenshots + archive ~/dev-context file | `mcp__atlassian__transitionJiraIssue` |
