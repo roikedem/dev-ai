@@ -448,9 +448,7 @@ For each dev-context file with `Status: waiting for PR review`:
 4. **Archive the dev-context file** — move it so it never surfaces in future sessions:
    ```bash
    mkdir -p dev-context/archive
-   git mv dev-context/{jira_project_key}-XX-short-description.md dev-context/archive/
-   git commit -m "{jira_project_key}-XX: archive dev-context — PR merged and issue done"
-   git push
+   mv dev-context/{jira_project_key}-XX-short-description.md dev-context/archive/
    ```
 
 5. If still open — leave as-is and continue.
