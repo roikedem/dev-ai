@@ -14,6 +14,9 @@ cd "$REPO_ROOT"
 # Cron has a minimal PATH — extend it with common user install locations
 export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
 
+# Ensure gh operates as the Claude agent account, not the user's account
+gh auth switch --user ClaudeCodeRoiAgent 2>/dev/null || log "warning: could not switch gh to ClaudeCodeRoiAgent"
+
 CLAUDE=$(which claude 2>/dev/null)
 if [ -z "$CLAUDE" ]; then
     log "claude not found in PATH"
