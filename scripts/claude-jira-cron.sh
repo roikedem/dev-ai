@@ -4,6 +4,7 @@ REPO_ROOT="${1:?Usage: claude-jira-cron.sh <project-dir>}"
 DEV_AI_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LOCK="$REPO_ROOT/.claude-jira.lock"
 LOG="$REPO_ROOT/logs/claude-jira.log"
+READ_MAIN_SWITCH="$DEV_AI_ROOT/scripts/read-main-switch.sh"
 
 ts()  { date '+%Y-%m-%d %H:%M:%S'; }
 log() { echo "[$(ts)] $*" >> "$LOG"; }
@@ -13,6 +14,17 @@ cd "$REPO_ROOT"
 
 # Cron has a minimal PATH — extend it with common user install locations
 export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
+
+SWITCH="$($READ_MAIN_SWITCH | tr -d '\r\n')"
+
+if [[ "$SWITCH" == "ON" ]]; then
+  # continue with the script
+  :
+else
+  log "Main Switch is $SWITCH, quitting"
+  exit 0
+fi
+
 
 # Force gh to use the Claude agent account token (bypasses keyring/interactive auth)
 AGENT_TOKEN_FILE="$HOME/.config/claude-agent-gh-token"
