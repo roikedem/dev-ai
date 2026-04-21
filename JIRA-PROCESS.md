@@ -15,6 +15,7 @@ When invoked from cron or manually without context, start here:
 1. Read `~/dev-context/` for in-progress work
 2. Run the PR Review Loop
 3. Check Jira for new assigned issues
+4. **Adjust cron rate** — at the end of the session (see "Cron Rate Adjustment" below)
 
 ---
 
@@ -26,8 +27,9 @@ Run from `~/projects/dev-ai`:
 # 1. In the target project directory — create required dirs and gitignore entries
 cd /path/to/project   # e.g. ~/projects/pandit
 mkdir -p logs
-grep -qxF 'logs/claude-jira.log' .gitignore || echo 'logs/claude-jira.log' >> .gitignore
-grep -qxF '.claude-jira.lock'    .gitignore || echo '.claude-jira.lock'    >> .gitignore
+grep -qxF 'logs/claude-jira.log'       .gitignore || echo 'logs/claude-jira.log'       >> .gitignore
+grep -qxF '.claude-jira.lock'          .gitignore || echo '.claude-jira.lock'          >> .gitignore
+grep -qxF '.claude-jira-last-active'   .gitignore || echo '.claude-jira-last-active'   >> .gitignore
 
 # 2. Make the cron script executable (run from dev-ai)
 cd ~/projects/dev-ai
@@ -465,6 +467,36 @@ For each file in `~/dev-context/` with `Status: waiting for PR review`:
    ```
 
 5. If still open — leave as-is and continue.
+
+---
+
+## Cron Rate Adjustment
+
+At the end of every session, adjust the crontab rate for this project based on whether there was anything to do.
+
+### If work was done (PR comments addressed, new issue started, Jira updated):
+
+```bash
+# Mark project as active
+date -u +%s > {project_dir}/.claude-jira-last-active
+
+# Ensure crontab runs every 5 minutes for this project
+(crontab -l | sed "s|^\*/[0-9]* \* \* \* \* \(.*/claude-jira-cron\.sh {project_dir}\)|\*/5 * * * * \1|") | crontab -
+```
+
+### If nothing to do (no PR comments, no new issues, no in-progress work):
+
+```bash
+# Check how long since last activity
+LAST=$(cat {project_dir}/.claude-jira-last-active 2>/dev/null || echo 0)
+NOW=$(date -u +%s)
+IDLE=$(( NOW - LAST ))
+
+if [ "$IDLE" -gt 600 ]; then
+  # Idle for more than 10 minutes — reduce to every 90 minutes
+  (crontab -l | sed "s|^\*/[0-9]* \* \* \* \* \(.*/claude-jira-cron\.sh {project_dir}\)|\*/90 * * * * \1|") | crontab -
+fi
+```
 
 ---
 
