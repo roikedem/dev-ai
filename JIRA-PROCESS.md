@@ -12,10 +12,24 @@ When invoked from cron or manually without context, start here:
    export GH_TOKEN=$(cat ~/.config/claude-agent-gh-token)
    ```
 
-1. Read `~/dev-context/` for in-progress work
-2. Run the PR Review Loop
-3. Check Jira for new assigned issues
-4. **Adjust cron rate** — at the end of the session (see "Cron Rate Adjustment" below)
+1. **Read `~/dev-context/`** for in-progress work (see "Session Start" below).
+
+2. **Pop the next task from the queue:**
+   ```bash
+   ~/projects/dev-ai/scripts/queue.sh pop {project_dir}
+   ```
+   The output is a JSON object. Handle it based on `type`:
+   - `jira_issue` — go to "Finding Issues to Solve" with `key` already known
+   - `jira_comment` — a new comment appeared on `key`; read the issue and respond/resume work
+   - `github_pr_comment` — a new inline comment on PR `pr_number`; go to PR Review Loop step C
+   - `github_pr_review` — a review with `state` CHANGES_REQUESTED or APPROVED on PR `pr_number`; go to PR Review Loop
+   - `github_pr_merged` — PR `pr_number` was merged; go to PR Review Loop step E
+
+   If the queue returns empty — there is nothing to do. Skip to step 4 (cron rate adjustment) and exit.
+
+3. After handling the task, pop the next item and repeat until the queue is empty.
+
+4. **Adjust cron rate** — at the end of the session (see "Cron Rate Adjustment" below).
 
 ---
 
@@ -26,21 +40,29 @@ Run from `~/projects/dev-ai`:
 ```bash
 # 1. In the target project directory — create required dirs and gitignore entries
 cd /path/to/project   # e.g. ~/projects/pandit
-mkdir -p logs
-grep -qxF 'logs/claude-jira.log'       .gitignore || echo 'logs/claude-jira.log'       >> .gitignore
+mkdir -p logs docs/screenshots
+grep -qxF 'logs/'                      .gitignore || echo 'logs/'                      >> .gitignore
 grep -qxF '.claude-jira.lock'          .gitignore || echo '.claude-jira.lock'          >> .gitignore
 grep -qxF '.claude-jira-last-active'   .gitignore || echo '.claude-jira-last-active'   >> .gitignore
+grep -qxF '.claude-queue.jsonl'        .gitignore || echo '.claude-queue.jsonl'        >> .gitignore
+grep -qxF '.claude-jira-seen.json'     .gitignore || echo '.claude-jira-seen.json'     >> .gitignore
+grep -qxF '.claude-gh-seen.json'       .gitignore || echo '.claude-gh-seen.json'       >> .gitignore
+grep -qxF '.claude-queue.lock'         .gitignore || echo '.claude-queue.lock'         >> .gitignore
 
-# 2. Make the cron script executable (run from dev-ai)
+# 2. Make all scripts executable (run from dev-ai)
 cd ~/projects/dev-ai
-chmod +x scripts/claude-jira-cron.sh
+chmod +x scripts/claude-jira-cron.sh scripts/poll-jira.sh scripts/poll-github.sh scripts/queue.sh
 
-# 3. Print the crontab line to add (crontab -e)
-echo "*/5 * * * * $(pwd)/scripts/claude-jira-cron.sh /path/to/project"
-# e.g.: */5 * * * * /home/roi/projects/dev-ai/scripts/claude-jira-cron.sh /home/roi/projects/pandit
+# 3. Print the crontab lines to add (crontab -e)
+PROJECT=/path/to/project   # e.g. /home/roi/projects/pandit
+echo "*/5 * * * * $(pwd)/scripts/poll-jira.sh $PROJECT"
+echo "*/5 * * * * $(pwd)/scripts/poll-github.sh $PROJECT"
+echo "*/5 * * * * $(pwd)/scripts/claude-jira-cron.sh $PROJECT"
 ```
 
-The script (`scripts/claude-jira-cron.sh`) handles locking, timestamped logging, and locating `claude` via PATH.
+Architecture:
+- **`poll-jira.sh`** and **`poll-github.sh`** run every 5 min, call Jira/GitHub APIs directly (no Claude), and push new tasks to `.claude-queue.jsonl` in the project dir.
+- **`claude-jira-cron.sh`** runs every 5 min but only starts Claude when the queue is non-empty.
 
 Ensure `gh` is authenticated as the Claude agent account:
 
@@ -51,7 +73,7 @@ gh auth switch --user ClaudeCodeRoiAgent
 For before/after screenshots, install Puppeteer once per machine:
 
 ```bash
-npm install puppeteer
+cd ~/projects/dev-ai && npm install puppeteer
 ```
 
 ---
@@ -76,17 +98,13 @@ Follow these steps in order when working on a Jira issue.
 
 ## Finding Issues to Solve
 
-Query Jira for open issues assigned to you:
+The issue key is provided by the queue (Entry Point step 2 — task type `jira_issue` or `jira_comment`).
 
-**JQL:** `project={jira_project_key} AND assignee="{jira_assignee}" ORDER BY created DESC`
+Fetch the full issue using the key from the queue item:
 
-**Tool:** `mcp__atlassian__searchJiraIssuesUsingJql`
-```
-jql: "project={jira_project_key} AND assignee=\"{jira_assignee}\" ORDER BY created DESC"
-fields: "summary,status,issuetype,priority"
-```
+**Tool:** `mcp__atlassian__getJiraIssue` with `cloudId: {jira_cloud_id}` and the issue key.
 
-Work through them in priority order (High → Medium → Low). Before picking one, **filter out any issue that has a `~/dev-context/` file with `Status: waiting for user`** — those are blocked and must not be touched until the user responds. Pick the highest-priority remaining issue, then follow the steps below.
+Before starting, check whether `~/dev-context/` has a file for this issue with `Status: waiting for user` — if so, only resume if the queue item is a `jira_comment` indicating new activity. Otherwise skip this task and pop the next queue item.
 
 ---
 

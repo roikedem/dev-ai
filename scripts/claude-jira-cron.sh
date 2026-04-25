@@ -40,13 +40,20 @@ if [ -z "$CLAUDE" ]; then
     exit 1
 fi
 
+QUEUE_SH="$DEV_AI_ROOT/scripts/queue.sh"
+QUEUE_COUNT=$("$QUEUE_SH" count "$REPO_ROOT" 2>/dev/null || echo 0)
+if [ "$QUEUE_COUNT" -eq 0 ]; then
+    log "queue empty — skipping claude"
+    exit 0
+fi
+
 exec 9>"$LOCK"
 if ! flock -n 9; then
     log "skipped — lock held by another instance"
     exit 0
 fi
 
-log "starting claude ($CLAUDE)"
+log "queue has $QUEUE_COUNT task(s) — starting claude ($CLAUDE)"
 "$CLAUDE" --dangerously-skip-permissions \
     -p "Follow the Entry Point section in $DEV_AI_ROOT/JIRA-PROCESS.md." \
     2>&1 | while IFS= read -r line; do
