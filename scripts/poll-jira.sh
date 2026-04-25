@@ -25,10 +25,9 @@ API_TOKEN=$(cat "$API_TOKEN_FILE")
 CLOUD_ID=$(jq -r '.jira_cloud_id' "$CONFIG")
 PROJECT_KEY=$(jq -r '.jira_project_key' "$CONFIG")
 ASSIGNEE=$(jq -r '.jira_assignee' "$CONFIG")
-EMAIL="roikedem@gmail.com"
+EMAIL="roikedem+claudecode@gmail.com"
 
-BASE_URL="https://api.atlassian.com/ex/jira/$CLOUD_ID/rest/api/3"
-AUTH_HEADER="Authorization: Basic $(echo -n "$EMAIL:$API_TOKEN" | base64 -w 0)"
+BASE_URL="https://intotodev.atlassian.net/rest/api/3"
 
 # Load seen items (issue keys + comment IDs already queued)
 if [ -f "$SEEN_FILE" ]; then
@@ -46,8 +45,8 @@ ADDED=0
 JQL="project=$PROJECT_KEY AND assignee=\"$ASSIGNEE\" AND statusCategory != Done ORDER BY updated DESC"
 ENCODED_JQL=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$JQL")
 
-RESPONSE=$(curl -sf -H "$AUTH_HEADER" -H "Content-Type: application/json" \
-    "$BASE_URL/search?jql=$ENCODED_JQL&maxResults=20&fields=summary,status,comment")
+RESPONSE=$(curl -sf -u "$EMAIL:$API_TOKEN" -H "Accept: application/json" \
+    "$BASE_URL/search/jql?jql=$ENCODED_JQL&maxResults=20&fields=summary,status,comment")
 
 if [ $? -ne 0 ]; then
     log "Jira API request failed"
