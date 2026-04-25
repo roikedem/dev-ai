@@ -20,7 +20,7 @@ log() { echo "[$(ts)] $*" >> "$LOG"; }
 
 API_TOKEN_FILE="$HOME/.config/atlassian-api-token"
 [ -f "$API_TOKEN_FILE" ] || { log "missing $API_TOKEN_FILE"; exit 1; }
-API_TOKEN=$(cat "$API_TOKEN_FILE")
+API_TOKEN=$(cat "$API_TOKEN_FILE" | tr -d '\r\n' | sed 's/=.*/=/')
 
 CLOUD_ID=$(jq -r '.jira_cloud_id' "$CONFIG")
 PROJECT_KEY=$(jq -r '.jira_project_key' "$CONFIG")
