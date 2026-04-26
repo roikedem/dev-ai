@@ -282,6 +282,7 @@ gh pr create --title "{jira_project_key}-XX: brief description" --body "..."
 ```
 
 - PR body should reference the Jira issue key and summarize what changed and why.
+- **Never post a GitHub compare link as a substitute for a PR.** If `gh pr create` fails, diagnose and fix the auth issue (`export GH_TOKEN=$(cat ~/.config/claude-agent-gh-token)`) and retry. Only post to Jira once a real PR URL exists.
 - For submodule (`{frontend_submodule}/`) changes, also update the submodule pointer in `{primary_repo}` and open a coordinated PR there if needed.
 
 **Transition the Jira issue to "Review":**
