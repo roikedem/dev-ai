@@ -18,14 +18,14 @@ log() { echo "[$(ts)] $*" >> "$LOG"; }
 
 [ -f "$CONFIG" ] || { log "missing $CONFIG"; exit 1; }
 
-API_TOKEN_FILE="$HOME/.config/atlassian-api-token"
+API_TOKEN_FILE="$HOME/.config/atlassian-api-token-admin"
 [ -f "$API_TOKEN_FILE" ] || { log "missing $API_TOKEN_FILE"; exit 1; }
-API_TOKEN=$(cat "$API_TOKEN_FILE" | tr -d '\r\n' | sed 's/=.*/=/')
+API_TOKEN=$(cat "$API_TOKEN_FILE" | tr -d '\r\n')
 
 CLOUD_ID=$(jq -r '.jira_cloud_id' "$CONFIG")
 PROJECT_KEY=$(jq -r '.jira_project_key' "$CONFIG")
 ASSIGNEE=$(jq -r '.jira_assignee' "$CONFIG")
-EMAIL="roikedem+claudecode@gmail.com"
+EMAIL="roikedem+admin@gmail.com"
 
 BASE_URL="https://intotodev.atlassian.net/rest/api/3"
 
