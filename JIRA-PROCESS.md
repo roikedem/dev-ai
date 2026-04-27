@@ -48,6 +48,7 @@ grep -qxF '.claude-queue.jsonl'        .gitignore || echo '.claude-queue.jsonl' 
 grep -qxF '.claude-jira-seen.json'     .gitignore || echo '.claude-jira-seen.json'     >> .gitignore
 grep -qxF '.claude-gh-seen.json'       .gitignore || echo '.claude-gh-seen.json'       >> .gitignore
 grep -qxF '.claude-queue.lock'         .gitignore || echo '.claude-queue.lock'         >> .gitignore
+grep -qxF '.jira-in-progress.jsonl'    .gitignore || echo '.jira-in-progress.jsonl'    >> .gitignore
 
 # 2. Make all scripts executable (run from dev-ai)
 cd ~/projects/dev-ai

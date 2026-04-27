@@ -26,13 +26,7 @@ else
 fi
 
 
-# Force gh to use the Claude agent account token (bypasses keyring/interactive auth)
-AGENT_TOKEN_FILE="$HOME/.config/claude-agent-gh-token"
-if [ -f "$AGENT_TOKEN_FILE" ]; then
-    export GH_TOKEN=$(cat "$AGENT_TOKEN_FILE")
-else
-    log "warning: $AGENT_TOKEN_FILE not found — gh may use wrong account"
-fi
+source "$DEV_AI_ROOT/scripts/session-setup.sh"
 
 CLAUDE=$(which claude 2>/dev/null)
 if [ -z "$CLAUDE" ]; then
@@ -53,11 +47,38 @@ if ! flock -n 9; then
     exit 0
 fi
 
-log "queue has $QUEUE_COUNT task(s) — starting claude ($CLAUDE)"
+IN_PROGRESS="$REPO_ROOT/.jira-in-progress.jsonl"
+
+# Pop the next task and export its fields as env vars for Claude
+TASK=$("$QUEUE_SH" pop "$REPO_ROOT")
+export TASK_JSON="$TASK"
+
+# Track task as in-progress until Claude finishes
+echo "$TASK" >> "$IN_PROGRESS"
+export TASK_TYPE=$(echo "$TASK"        | jq -r '.type        // ""')
+export TASK_KEY=$(echo "$TASK"         | jq -r '.key         // ""')
+export TASK_SUMMARY=$(echo "$TASK"     | jq -r '.summary     // ""')
+export TASK_COMMENT_ID=$(echo "$TASK"  | jq -r '.comment_id  // ""')
+export TASK_COMMENT_BODY=$(echo "$TASK"| jq -r '.body        // ""')
+export TASK_COMMENT_AUTHOR=$(echo "$TASK" | jq -r '.author   // ""')
+export TASK_PR_NUMBER=$(echo "$TASK"   | jq -r '.pr_number   // ""')
+export TASK_PR_TITLE=$(echo "$TASK"    | jq -r '.pr_title    // ""')
+export TASK_BRANCH=$(echo "$TASK"      | jq -r '.branch      // ""')
+export TASK_REVIEW_STATE=$(echo "$TASK"| jq -r '.state       // ""')
+export TASK_CONTEXT_DIRECTORY="$HOME/dev-context/$TASK_KEY"
+export TASK_CONTEXT_FILE="$TASK_CONTEXT_DIRECTORY/context.txt"
+
+
+mkdir -p "$TASK_CONTEXT_DIRECTORY"
+
+log "starting claude — task: $TASK_TYPE ${TASK_KEY}${TASK_PR_NUMBER} ($CLAUDE)"
 "$CLAUDE" --dangerously-skip-permissions \
-    -p "Follow the Entry Point section in $DEV_AI_ROOT/JIRA-PROCESS.md." \
+    -p "Follow the Entry Point section in $DEV_AI_ROOT/PROCESS-TASK.md." \
     2>&1 | while IFS= read -r line; do
         echo "[$(ts)] $line" >> "$LOG"
     done
 EXIT=${PIPESTATUS[0]}
 log "claude finished (exit $EXIT)"
+
+# Remove the completed task from in-progress
+grep -vF "$TASK" "$IN_PROGRESS" > "$IN_PROGRESS.tmp" && mv "$IN_PROGRESS.tmp" "$IN_PROGRESS"
