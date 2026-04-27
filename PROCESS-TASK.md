@@ -46,6 +46,24 @@ Then route based on `$TASK_TYPE`:
 - `github_pr_review` — review on PR `$TASK_PR_NUMBER`; go to **PR Review → step C**
 - `github_pr_merged` — PR `$TASK_PR_NUMBER` was merged; go to **PR Review → step E**
 
+## Action Logging
+
+Throughout the session, append a one-line entry to `$TASK_CONTEXT_FILE` for every significant decision or action taken:
+
+```
+[<ISO 8601 timestamp>] <action or decision>
+```
+
+Examples:
+```
+[2026-04-27T10:05:00Z] Read issue: DNS link check after production migration
+[2026-04-27T10:05:30Z] Transitioned Jira to In Progress
+[2026-04-27T10:06:00Z] Created branch KNS-36-check-monday-links
+[2026-04-27T10:20:00Z] Fixed: updated exportLinks() to use new domain
+[2026-04-27T10:21:00Z] Wrote testplan to testplan.txt, commented on Jira
+[2026-04-27T10:22:00Z] Created PR #42, transitioned Jira to Review
+```
+
 ---
 
 Follow these steps in order when working on a Jira issue.
@@ -77,9 +95,13 @@ If the issue involves any of the following, **backup the database before startin
 
 ## 2. Move to "In Progress"
 
+**This step is required. Do not skip it.**
+
 - Transition the issue status to **In Progress** before starting work.
 
 **Tool:** `mcp__atlassian__getTransitionsForJiraIssue` to get the transition ID, then `mcp__atlassian__transitionJiraIssue`.
+
+Log: `Transitioned Jira $TASK_KEY to In Progress`
 
 ---
 
@@ -176,7 +198,12 @@ When checking this issue in future sessions — only act if there is new activit
 
 ## 5. Test
 
-- Write testplan — write it to `$TASK_CONTEXT_DIRECTORY/testplan.txt` and update it as a comment on the Jira issue.
+**Both of the following are required before proceeding to step 6:**
+
+1. Write the testplan to `$TASK_CONTEXT_DIRECTORY/testplan.txt`.
+2. Post the testplan as a comment on the Jira issue (`mcp__atlassian__addCommentToJiraIssue`).
+
+Then run tests:
 - Run tests from the testplan.
 - Run all relevant test commands defined in `.jira-process.json` (`test_commands.backend`, `test_commands.frontend`).
 - Exercise the affected path manually and verify in the browser.
@@ -222,12 +249,15 @@ gh pr create --title "$TASK_KEY: brief description" --body "..."
 ```
 
 - PR body should reference the Jira issue key and summarize what changed and why.
-- **Never post a GitHub compare link as a substitute for a PR.** If `gh pr create` fails, verify `$GH_TOKEN` is set and retry. Only post to Jira once a real PR URL exists.
+- **Never post a GitHub compare link as a substitute for a PR.** If `gh pr create` fails, verify `$GH_TOKEN` is set (`echo $GH_TOKEN`) and retry. Only post to Jira once a real PR URL exists.
+- Before creating the PR, confirm you are authenticated as the agent: `gh api user --jq .login` must return `ClaudeCodeRoiAgent`. If it returns another user, stop and fix the auth before proceeding.
 - For submodule (`{frontend_submodule}/`) changes, also update the submodule pointer in `{primary_repo}` and open a coordinated PR there if needed.
 
-**Transition the Jira issue to "Review":**
+**Transition the Jira issue to "Review" — required before moving on:**
 
 **Tool:** `mcp__atlassian__getTransitionsForJiraIssue` to find the "Review" transition ID, then `mcp__atlassian__transitionJiraIssue`.
+
+Log: `Transitioned Jira $TASK_KEY to Review, PR: <PR URL>`
 
 **Update `$TASK_CONTEXT_FILE`:**
 

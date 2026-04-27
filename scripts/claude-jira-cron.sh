@@ -71,7 +71,8 @@ export TASK_CONTEXT_FILE="$TASK_CONTEXT_DIRECTORY/context.txt"
 
 mkdir -p "$TASK_CONTEXT_DIRECTORY"
 
-log "starting claude — task: $TASK_TYPE ${TASK_KEY}${TASK_PR_NUMBER} ($CLAUDE)"
+GH_USER=$(GH_TOKEN="$GH_TOKEN" gh api user --jq .login 2>/dev/null || echo "unknown")
+log "starting claude — task: $TASK_TYPE ${TASK_KEY}${TASK_PR_NUMBER} — gh user: $GH_USER ($CLAUDE)"
 "$CLAUDE" --dangerously-skip-permissions \
     -p "Follow the Entry Point section in $DEV_AI_ROOT/PROCESS-TASK.md." \
     2>&1 | while IFS= read -r line; do
@@ -81,4 +82,5 @@ EXIT=${PIPESTATUS[0]}
 log "claude finished (exit $EXIT)"
 
 # Remove the completed task from in-progress
-grep -vF "$TASK" "$IN_PROGRESS" > "$IN_PROGRESS.tmp" && mv "$IN_PROGRESS.tmp" "$IN_PROGRESS"
+jq -c --arg key "$TASK_KEY" 'select(.key != $key)' "$IN_PROGRESS" > "$IN_PROGRESS.tmp"
+mv "$IN_PROGRESS.tmp" "$IN_PROGRESS"
