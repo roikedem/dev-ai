@@ -29,6 +29,18 @@ When invoked from cron, a single task has been popped from the queue and its det
 ---
 
 
+## Session Setup
+
+Before anything else, run:
+
+```bash
+source ~/projects/dev-ai/scripts/session-setup.sh
+```
+
+Then verify: `gh api user --jq .login` must return `ClaudeCodeRoiAgent`. If it returns another user, stop — do not create any PRs or comments until this is resolved.
+
+---
+
 ## Session Start: Read Dev Context First
 
 Before doing anything else, read `$TASK_CONTEXT_FILE` if it exists.
@@ -252,6 +264,20 @@ gh pr create --title "$TASK_KEY: brief description" --body "..."
 - **Never post a GitHub compare link as a substitute for a PR.** If `gh pr create` fails, verify `$GH_TOKEN` is set (`echo $GH_TOKEN`) and retry. Only post to Jira once a real PR URL exists.
 - Before creating the PR, confirm you are authenticated as the agent: `gh api user --jq .login` must return `ClaudeCodeRoiAgent`. If it returns another user, stop and fix the auth before proceeding.
 - For submodule (`{frontend_submodule}/`) changes, also update the submodule pointer in `{primary_repo}` and open a coordinated PR there if needed.
+
+**Link the PR to the Jira issue** so it appears under the Development panel:
+
+**Tool:** `mcp__atlassian__createIssueLink` — or use `mcp__atlassian__fetch` to POST a remote link:
+```
+POST /rest/api/3/issue/$TASK_KEY/remotelink
+{
+  "object": {
+    "url": "<PR URL>",
+    "title": "PR: <PR title>",
+    "icon": { "url16x16": "https://github.com/favicon.ico", "title": "GitHub" }
+  }
+}
+```
 
 **Transition the Jira issue to "Review" — required before moving on:**
 

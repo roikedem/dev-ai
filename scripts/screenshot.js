@@ -25,7 +25,7 @@ try {
 if (usePuppeteer) {
   const puppeteer = require(path.join(DEV_AI_ROOT, 'node_modules/puppeteer'));
   (async () => {
-    const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
+    const browser = await puppeteer.launch({ args: ['--no-sandbox', '--ignore-certificate-errors'] });
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 900 });
     await page.goto(url, { waitUntil: 'networkidle2' });
@@ -43,7 +43,7 @@ if (usePuppeteer) {
   // Fallback: full-page screenshot (no element clipping)
   console.warn('puppeteer not found — taking full-page screenshot. Run: npm install puppeteer');
   execSync(
-    `google-chrome --headless --disable-gpu --screenshot="${outFile}" --window-size=1280,900 "${url}"`,
+    `google-chrome --headless --disable-gpu --ignore-certificate-errors --screenshot="${outFile}" --window-size=1280,900 "${url}"`,
     { stdio: 'inherit' }
   );
   console.log(`Saved: ${outFile}`);
