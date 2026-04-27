@@ -118,7 +118,7 @@ git checkout -b "$TASK_KEY-short-description"
 - For frontend changes: branch in `{frontend_submodule}/` (the `{frontend_repo}` submodule).
 - For changes spanning both: create matching branches in both repos.
 
-**Take a "before" screenshot:**
+**Take a "before" screenshot — required before touching any code:**
 
 - Identify the URL(s) in the local site that show the problem.
 - For each affected URL, take a screenshot of the relevant section using the helper script:
@@ -210,7 +210,7 @@ Then run tests:
 - Update testplan results on the Jira issue comment.
 - Confirm the original symptom described in the Jira issue is resolved.
 
-**Take an "after" screenshot:**
+**Take an "after" screenshot — required before committing:**
 
 ```bash
 node ~/projects/dev-ai/scripts/screenshot.js "<url>" "<css-selector>" "$TASK_CONTEXT_DIRECTORY/after.png"
