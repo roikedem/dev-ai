@@ -6,3 +6,6 @@
 
 # GitHub token — required before any `gh` command
 export GH_TOKEN=$(cat ~/.config/claude-agent-gh-token)
+
+# Anthropic API key — enables pay-per-use billing, bypasses Claude.ai subscription cap
+export ANTHROPIC_API_KEY=$(cat ~/.config/anthropic-api-key)
