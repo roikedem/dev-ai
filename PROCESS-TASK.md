@@ -194,7 +194,7 @@ If you are blocked — missing context, requires a decision, or beyond current s
    <one paragraph — what is missing or what decision is needed>
    ```
 
-3. Return to `{default_branch}` and pick up a different issue.
+3. Return to `{default_branch}` and stop. This session handles one task only.
 
 When checking this issue in future sessions — only act if there is new activity (a reply or status change since the "Blocked since" timestamp). Otherwise skip it entirely.
 
