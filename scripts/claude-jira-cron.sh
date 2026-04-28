@@ -73,12 +73,34 @@ mkdir -p "$TASK_CONTEXT_DIRECTORY"
 
 GH_USER=$(GH_TOKEN="$GH_TOKEN" gh api user --jq .login 2>/dev/null || echo "unknown")
 log "starting claude — task: $TASK_TYPE ${TASK_KEY}${TASK_PR_NUMBER} — gh user: $GH_USER ($CLAUDE)"
-"$CLAUDE" --dangerously-skip-permissions \
-    -p "Follow the Entry Point section in $DEV_AI_ROOT/PROCESS-TASK.md." \
-    2>&1 | while IFS= read -r line; do
-        echo "[$(ts)] $line" >> "$LOG"
-    done
-EXIT=${PIPESTATUS[0]}
+
+CLAUDE_OUTPUT=$("$CLAUDE" --dangerously-skip-permissions --output-format json \
+    -p "Follow the Entry Point section in $DEV_AI_ROOT/PROCESS-TASK.md." 2>&1)
+EXIT=$?
+
+# Log all output lines with timestamps
+while IFS= read -r line; do
+    echo "[$(ts)] $line" >> "$LOG"
+done <<< "$CLAUDE_OUTPUT"
+
+# Extract and log token usage from JSON result
+USAGE_LINE=$(echo "$CLAUDE_OUTPUT" | python3 -c "
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        obj = json.loads(line)
+        if obj.get('type') == 'result':
+            u = obj.get('usage', {})
+            cost = obj.get('total_cost_usd', 0)
+            print(f\"tokens in={u.get('input_tokens',0)} cache_read={u.get('cache_read_input_tokens',0)} out={u.get('output_tokens',0)} cost=\${cost:.4f}\")
+            break
+    except Exception:
+        pass
+" 2>/dev/null)
+[ -n "$USAGE_LINE" ] && log "usage: $USAGE_LINE"
 log "claude finished (exit $EXIT)"
 
 # Remove the completed task from in-progress
