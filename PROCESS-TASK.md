@@ -456,3 +456,20 @@ git checkout {default_branch} && git pull
    mv "$TASK_CONTEXT_DIRECTORY" ~/dev-context/archive/
    ```
 
+---
+
+## Exit Checklist
+
+**Before ending the session, verify every applicable item:**
+
+| # | Check | How to verify |
+|---|---|---|
+| 1 | Jira status is **"Review"** (or "Done" for merged PRs) | `mcp__atlassian__getJiraIssue` → `fields.status.name` |
+| 2 | PR exists and is open | `gh pr view $TASK_PR_NUMBER --repo {github_repo}` |
+| 3 | PR is linked in Jira Development panel | `mcp__atlassian__getJiraIssueRemoteIssueLinks` |
+| 4 | Jira comment posted with PR link | `mcp__atlassian__getJiraIssue` → `fields.comment` |
+| 5 | `$TASK_CONTEXT_FILE` status is `waiting for PR review` | `cat "$TASK_CONTEXT_FILE"` |
+
+**If any check fails, fix it before exiting.**
+
+Do not skip this checklist. The user will not review work that is not in "Review" status in Jira.
