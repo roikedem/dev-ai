@@ -1,10 +1,8 @@
 {
   "mcpServers": {
     "postgres": {
-      "command": "/home/roi/.nvm/versions/node/v20.20.2/bin/mcp-server-postgres",
-      "args": [
-        "postgresql://neondb_owner:npg_R3lr2QIHTpWc@ep-old-math-amz5js2o-pooler.c-5.us-east-1.aws.neon.tech/neondb?sslmode=require"
-      ]
+      "command": "/home/roi/projects/dev-ai/scripts/mcp-postgres.sh",
+      "args": []
     }
   }
 }
