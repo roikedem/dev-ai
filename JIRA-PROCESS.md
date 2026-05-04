@@ -149,9 +149,8 @@ If the issue involves any of the following, **backup the database before startin
 git checkout -b {jira_project_key}-XX-short-description
 ```
 
-- For backend changes: branch in `{primary_repo}`.
-- For frontend changes: branch in `{frontend_submodule}/` (the `{frontend_repo}` submodule).
-- For changes spanning both: create matching branches in both repos.
+- Create a branch in every repo that needs changes (read `repos` from `.jira-process.json`).
+- Use the same branch name across all repos for traceability.
 
 **Take a "before" screenshot:**
 
@@ -284,7 +283,7 @@ gh pr create --title "{jira_project_key}-XX: brief description" --body "..."
 
 - PR body should reference the Jira issue key and summarize what changed and why.
 - **Never post a GitHub compare link as a substitute for a PR.** If `gh pr create` fails, diagnose and fix the auth issue (`source ~/projects/dev-ai/scripts/session-setup.sh`) and retry. Only post to Jira once a real PR URL exists.
-- For submodule (`{frontend_submodule}/`) changes, also update the submodule pointer in `{primary_repo}` and open a coordinated PR there if needed.
+- Open one PR per repo that has commits. If a repo contains another as a submodule, also update the submodule pointer and open a PR for that too.
 
 **Transition the Jira issue to "Review":**
 
@@ -357,7 +356,7 @@ Run this at the start of each session (after reading `~/dev-context/`) to handle
 ### A. List Open PRs
 
 ```bash
-gh pr list --repo {github_repo} --state open --json number,title,headRefName,url
+gh pr list --repo {repo} --state open --json number,title,headRefName,url
 ```
 
 ### B. Check Each PR for Unresolved Comments
@@ -365,9 +364,9 @@ gh pr list --repo {github_repo} --state open --json number,title,headRefName,url
 For each open PR, fetch all review comments and issue comments left by `{github_user}`:
 
 ```bash
-gh pr view <number> --repo {github_repo} --json reviews,comments,headRefName
-gh api repos/{github_repo}/pulls/<number>/comments
-gh api repos/{github_repo}/issues/<number>/comments
+gh pr view <number> --repo {repo} --json reviews,comments,headRefName
+gh api repos/{repo}/pulls/<number>/comments
+gh api repos/{repo}/issues/<number>/comments
 ```
 
 A comment needs action if:
@@ -419,7 +418,7 @@ For each PR with actionable comments:
 
 8. **Reply to the comment** to confirm it was addressed:
    ```bash
-   gh api repos/{github_repo}/issues/<number>/comments \
+   gh api repos/{repo}/issues/<number>/comments \
      --method POST \
      --field body="Addressed in <commit sha> — brief explanation of what changed."
    ```
@@ -454,7 +453,7 @@ For each file in `~/dev-context/` with `Status: waiting for PR review`:
 
 1. **Check if the PR is merged:**
    ```bash
-   gh pr view <number> --repo {github_repo} --json state,mergedAt
+   gh pr view <number> --repo {repo} --json state,mergedAt
    ```
 
 2. **If merged** — transition the Jira issue to **Done**:

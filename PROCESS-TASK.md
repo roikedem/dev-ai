@@ -126,9 +126,8 @@ Log: `Transitioned Jira $TASK_KEY to In Progress`
 git checkout -b "$TASK_KEY-short-description"
 ```
 
-- For backend changes: branch in `{primary_repo}`.
-- For frontend changes: branch in `{frontend_submodule}/` (the `{frontend_repo}` submodule).
-- For changes spanning both: create matching branches in both repos.
+- Create a branch in every repo that needs changes (read `repos` from `.jira-process.json`).
+- Use the same branch name across all repos for traceability.
 
 **Take a "before" screenshot — required before touching any code:**
 
@@ -263,7 +262,7 @@ gh pr create --title "$TASK_KEY: brief description" --body "..."
 - PR body should reference the Jira issue key and summarize what changed and why.
 - **Never post a GitHub compare link as a substitute for a PR.** If `gh pr create` fails, verify `$GH_TOKEN` is set (`echo $GH_TOKEN`) and retry. Only post to Jira once a real PR URL exists.
 - Before creating the PR, confirm you are authenticated as the agent: `gh api user --jq .login` must return `ClaudeCodeRoiAgent`. If it returns another user, stop and fix the auth before proceeding.
-- For submodule (`{frontend_submodule}/`) changes, also update the submodule pointer in `{primary_repo}` and open a coordinated PR there if needed.
+- Open one PR per repo that has commits. If a repo contains another as a submodule, also update the submodule pointer and open a PR for that too.
 
 **Link the PR to the Jira issue** so it appears under the Development panel:
 
@@ -336,7 +335,7 @@ If a backup was taken in step 0, restore it when returning to the default branch
 ### A. Fetch the PR
 
 ```bash
-gh pr view "$TASK_PR_NUMBER" --repo {github_repo} --json number,title,headRefName,url,state,mergedAt
+gh pr view "$TASK_PR_NUMBER" --repo {repo} --json number,title,headRefName,url,state,mergedAt
 ```
 
 ### B. Check PR for Unresolved Comments
@@ -344,9 +343,9 @@ gh pr view "$TASK_PR_NUMBER" --repo {github_repo} --json number,title,headRefNam
 For PR `$TASK_PR_NUMBER`, fetch all review comments and issue comments left by `{github_user}`:
 
 ```bash
-gh pr view "$TASK_PR_NUMBER" --repo {github_repo} --json reviews,comments,headRefName
-gh api repos/{github_repo}/pulls/"$TASK_PR_NUMBER"/comments
-gh api repos/{github_repo}/issues/"$TASK_PR_NUMBER"/comments
+gh pr view "$TASK_PR_NUMBER" --repo {repo} --json reviews,comments,headRefName
+gh api repos/{repo}/pulls/"$TASK_PR_NUMBER"/comments
+gh api repos/{repo}/issues/"$TASK_PR_NUMBER"/comments
 ```
 
 A comment needs action if:
@@ -396,7 +395,7 @@ If no actionable comments exist — nothing to do for this task.
 
 8. **Reply to the comment** to confirm it was addressed:
    ```bash
-   gh api repos/{github_repo}/issues/"$TASK_PR_NUMBER"/comments \
+   gh api repos/{repo}/issues/"$TASK_PR_NUMBER"/comments \
      --method POST \
      --field body="Addressed in <commit sha> — brief explanation of what changed."
    ```
@@ -465,7 +464,7 @@ git checkout {default_branch} && git pull
 | # | Check | How to verify |
 |---|---|---|
 | 1 | Jira status is **"Review"** (or "Done" for merged PRs) | `mcp__atlassian__getJiraIssue` → `fields.status.name` |
-| 2 | PR exists and is open | `gh pr view $TASK_PR_NUMBER --repo {github_repo}` |
+| 2 | PR exists and is open | `gh pr view $TASK_PR_NUMBER --repo {repo}` |
 | 3 | PR is linked in Jira Development panel | `mcp__atlassian__getJiraIssueRemoteIssueLinks` |
 | 4 | Jira comment posted with PR link | `mcp__atlassian__getJiraIssue` → `fields.comment` |
 | 5 | `$TASK_CONTEXT_FILE` status is `waiting for PR review` | `cat "$TASK_CONTEXT_FILE"` |

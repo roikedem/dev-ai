@@ -35,26 +35,33 @@ if [ -z "$CLAUDE" ]; then
 fi
 
 QUEUE_SH="$DEV_AI_ROOT/scripts/queue.sh"
+
+exec 9>"$LOCK"
+if ! flock -n 9; then
+    log "skipped — claude already running on this host"
+    exit 0
+fi
+
+# Recover any in_progress tasks left by a previous crash on this host
+# (only reached if the lock was NOT held, meaning no Claude is running)
+RECOVERED=$("$QUEUE_SH" recover "$REPO_ROOT")
+if [ -n "$RECOVERED" ]; then
+    while IFS= read -r line; do
+        log "recovered stuck task: $line"
+    done <<< "$RECOVERED"
+fi
+
 QUEUE_COUNT=$("$QUEUE_SH" count "$REPO_ROOT" 2>/dev/null || echo 0)
 if [ "$QUEUE_COUNT" -eq 0 ]; then
     log "queue empty — skipping claude"
     exit 0
 fi
 
-exec 9>"$LOCK"
-if ! flock -n 9; then
-    log "skipped — lock held by another instance"
-    exit 0
-fi
-
-IN_PROGRESS="$REPO_ROOT/.jira-in-progress.jsonl"
-
 # Pop the next task and export its fields as env vars for Claude
 TASK=$("$QUEUE_SH" pop "$REPO_ROOT")
 export TASK_JSON="$TASK"
 
-# Track task as in-progress until Claude finishes
-echo "$TASK" >> "$IN_PROGRESS"
+export TASK_ID=$(echo "$TASK"          | jq -r '.id          // ""')
 export TASK_TYPE=$(echo "$TASK"        | jq -r '.type        // ""')
 export TASK_KEY=$(echo "$TASK"         | jq -r '.key         // ""')
 export TASK_SUMMARY=$(echo "$TASK"     | jq -r '.summary     // ""')
@@ -103,6 +110,8 @@ for line in sys.stdin:
 [ -n "$USAGE_LINE" ] && log "usage: $USAGE_LINE"
 log "claude finished (exit $EXIT)"
 
-# Remove the completed task from in-progress
-jq -c --arg key "$TASK_KEY" 'select(.key != $key)' "$IN_PROGRESS" > "$IN_PROGRESS.tmp"
-mv "$IN_PROGRESS.tmp" "$IN_PROGRESS"
+if [ $EXIT -eq 0 ]; then
+    [ -n "$TASK_ID" ] && "$QUEUE_SH" done "$REPO_ROOT" "$TASK_ID"
+else
+    [ -n "$TASK_ID" ] && "$QUEUE_SH" requeue "$REPO_ROOT" "$TASK_ID"
+fi
