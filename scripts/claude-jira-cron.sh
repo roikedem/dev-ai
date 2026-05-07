@@ -81,9 +81,37 @@ mkdir -p "$TASK_CONTEXT_DIRECTORY"
 GH_USER=$(GH_TOKEN="$GH_TOKEN" gh api user --jq .login 2>/dev/null || echo "unknown")
 log "starting claude — task: $TASK_TYPE ${TASK_KEY}${TASK_PR_NUMBER} — gh user: $GH_USER ($CLAUDE)"
 
-CLAUDE_OUTPUT=$("$CLAUDE" --dangerously-skip-permissions --output-format json \
-    -p "Follow the Entry Point section in $DEV_AI_ROOT/PROCESS-TASK.md." 2>&1)
+CLAUDE_OUTFILE=$(mktemp /tmp/claude-output-XXXXXX)
+IDLE_TIMEOUT=900  # 15 minutes
+WATCH_DIR="$HOME/dev-context"
+MARK=$(mktemp /tmp/claude-mark-XXXXXX)
+IDLE=0
+
+"$CLAUDE" --dangerously-skip-permissions --output-format json \
+    -p "Follow the Entry Point section in $DEV_AI_ROOT/PROCESS-TASK.md." \
+    > "$CLAUDE_OUTFILE" 2>&1 &
+CLAUDE_PID=$!
+
+while kill -0 "$CLAUDE_PID" 2>/dev/null; do
+    sleep 60
+    if find "$WATCH_DIR" -newer "$MARK" -type f 2>/dev/null | grep -q .; then
+        touch "$MARK"
+        IDLE=0
+    else
+        IDLE=$((IDLE + 60))
+        if [ "$IDLE" -ge "$IDLE_TIMEOUT" ]; then
+            log "timeout — no dev-context write for $((IDLE_TIMEOUT / 60)) min; killing claude (pid $CLAUDE_PID)"
+            kill "$CLAUDE_PID"
+            break
+        fi
+    fi
+done
+
+wait "$CLAUDE_PID"
 EXIT=$?
+rm -f "$MARK"
+CLAUDE_OUTPUT=$(cat "$CLAUDE_OUTFILE")
+rm -f "$CLAUDE_OUTFILE"
 
 # Log all output lines with timestamps
 while IFS= read -r line; do
