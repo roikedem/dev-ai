@@ -87,7 +87,7 @@ WATCH_DIR="$HOME/dev-context"
 MARK=$(mktemp /tmp/claude-mark-XXXXXX)
 IDLE=0
 
-"$CLAUDE" --dangerously-skip-permissions --output-format json \
+"$CLAUDE" --model sonnet --dangerously-skip-permissions --output-format json \
     -p "Follow the Entry Point section in $DEV_AI_ROOT/PROCESS-TASK.md." \
     > "$CLAUDE_OUTFILE" 2>&1 &
 CLAUDE_PID=$!
