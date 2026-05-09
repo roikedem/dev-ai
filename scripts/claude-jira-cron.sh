@@ -75,11 +75,29 @@ export TASK_REVIEW_STATE=$(echo "$TASK"| jq -r '.state       // ""')
 export TASK_CONTEXT_DIRECTORY="$HOME/dev-context/$TASK_KEY"
 export TASK_CONTEXT_FILE="$TASK_CONTEXT_DIRECTORY/context.txt"
 
+# Determine which local workflow to run based on Jira labels
+TASK_LABELS=$(echo "$TASK" | jq -r '.labels // []')
+HAS_LOCAL_DEV=$(echo "$TASK_LABELS"  | jq -r 'contains(["local-dev-env"])')
+HAS_LOCAL_TEST=$(echo "$TASK_LABELS" | jq -r 'contains(["local-test-env"])')
+
+# Guard: poll scripts should filter these out, but skip gracefully if one slips through
+if [ "$HAS_LOCAL_DEV" != "true" ] && [ "$HAS_LOCAL_TEST" != "true" ]; then
+    log "skipping $TASK_KEY — no local-dev-env or local-test-env label (cloud agent handles this)"
+    [ -n "$TASK_ID" ] && "$QUEUE_SH" done "$REPO_ROOT" "$TASK_ID"
+    exit 0
+fi
 
 mkdir -p "$TASK_CONTEXT_DIRECTORY"
 
 GH_USER=$(GH_TOKEN="$GH_TOKEN" gh api user --jq .login 2>/dev/null || echo "unknown")
-log "starting claude — task: $TASK_TYPE ${TASK_KEY}${TASK_PR_NUMBER} — gh user: $GH_USER ($CLAUDE)"
+
+if [ "$HAS_LOCAL_TEST" = "true" ] && [ "$HAS_LOCAL_DEV" != "true" ]; then
+    CLAUDE_PROMPT="Follow the Local Test Flow section in $DEV_AI_ROOT/PROCESS-TASK.md."
+    log "starting claude (local-test-env) — task: $TASK_TYPE $TASK_KEY — gh user: $GH_USER ($CLAUDE)"
+else
+    CLAUDE_PROMPT="Follow the Entry Point section in $DEV_AI_ROOT/PROCESS-TASK.md."
+    log "starting claude (local-dev-env) — task: $TASK_TYPE ${TASK_KEY}${TASK_PR_NUMBER} — gh user: $GH_USER ($CLAUDE)"
+fi
 
 CLAUDE_OUTFILE=$(mktemp /tmp/claude-output-XXXXXX)
 IDLE_TIMEOUT=900  # 15 minutes
@@ -88,7 +106,7 @@ MARK=$(mktemp /tmp/claude-mark-XXXXXX)
 IDLE=0
 
 "$CLAUDE" --model sonnet --dangerously-skip-permissions --output-format json \
-    -p "Follow the Entry Point section in $DEV_AI_ROOT/PROCESS-TASK.md." \
+    -p "$CLAUDE_PROMPT" \
     > "$CLAUDE_OUTFILE" 2>&1 &
 CLAUDE_PID=$!
 

@@ -51,6 +51,22 @@ fi
 
 echo
 echo "Add these lines to crontab (crontab -e):"
+echo "# These only run for issues/PRs with local-dev-env or local-test-env labels:"
 echo "*/5 * * * * $DEV_AI_ROOT/scripts/poll-jira.sh $PROJECT_DIR"
 echo "*/5 * * * * $DEV_AI_ROOT/scripts/poll-github.sh $PROJECT_DIR"
 echo "*/5 * * * * $DEV_AI_ROOT/scripts/claude-jira-cron.sh $PROJECT_DIR"
+echo
+echo "GitHub token location: the scripts check ~/.config/claude-agent-gh-token first,"
+echo "then fall back to ~/.github-claude-api-token. Make sure one of these exists."
+echo
+echo "Cloud agent setup (one-time, for all projects without local-dev-env):"
+echo "1. Create a cloud-config/<slug>.json for each project (see cloud-config/README.md)"
+echo "2. Collect trigger env vars:"
+echo "   GH_TOKEN=\$(cat ~/.github-claude-api-token)"
+echo "   ANTHROPIC_API_KEY=\$(cat ~/.config/anthropic-api-key)"
+echo "   JIRA_EMAIL=roikedem+admin@gmail.com"
+echo "   JIRA_API_TOKEN=\$(cat ~/.config/atlassian-api-token-admin)"
+echo "   # PGHOST, PGUSER, PGPASSWORD, PGDATABASE from ~/.config/dev-ai-neon-connection-params"
+echo "   DEV_AI_REPO=roikedem/dev-ai"
+echo "3. Create the CronCreate trigger via Claude Code /schedule skill with the above env vars"
+echo "   and the prompt: 'Follow CLOUD-PROCESS-TASK.md in the roikedem/dev-ai repo.'"

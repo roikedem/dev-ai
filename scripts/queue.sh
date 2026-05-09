@@ -33,11 +33,13 @@ case "$OPERATION" in
     TASK_KEY=$(echo "$JSON"    | jq -r '.key                                           // ""')
     TASK_PR=$(echo "$JSON"     | jq -r 'if .pr_number != null then (.pr_number|tostring) else "" end')
     TASK_BRANCH=$(echo "$JSON" | jq -r '.branch                                        // ""')
+    # Build PostgreSQL TEXT[] literal from labels array, e.g. {"local-dev-env","Urgent"}
+    LABELS_PG=$(echo "$JSON"   | jq -r '.labels // [] | if length == 0 then "" else ("{" + (map(. | @json) | join(",")) + "}") end')
 
     if [ -n "$DEDUP_KEY" ]; then
       # Print 1 if inserted, 0 if dedup conflict — lets callers skip duplicate logging
       psql -t -A -c "
-        INSERT INTO tasks (project_dir, task_type, task_key, task_pr_number, task_branch, payload, dedup_key)
+        INSERT INTO tasks (project_dir, task_type, task_key, task_pr_number, task_branch, payload, dedup_key, labels)
         VALUES (
           '$DIR',
           '$(sq "$TASK_TYPE")',
@@ -45,19 +47,21 @@ case "$OPERATION" in
           NULLIF('$(sq "$TASK_PR")',     ''),
           NULLIF('$(sq "$TASK_BRANCH")', ''),
           '$(sq "$JSON")'::jsonb,
-          '$(sq "$DEDUP_KEY")'
+          '$(sq "$DEDUP_KEY")',
+          NULLIF('$(sq "$LABELS_PG")', '')::text[]
         ) ON CONFLICT (dedup_key) DO NOTHING
         RETURNING 1;" | grep -c '^1$'
     else
       psql -q -c "
-        INSERT INTO tasks (project_dir, task_type, task_key, task_pr_number, task_branch, payload)
+        INSERT INTO tasks (project_dir, task_type, task_key, task_pr_number, task_branch, payload, labels)
         VALUES (
           '$DIR',
           '$(sq "$TASK_TYPE")',
           NULLIF('$(sq "$TASK_KEY")',    ''),
           NULLIF('$(sq "$TASK_PR")',     ''),
           NULLIF('$(sq "$TASK_BRANCH")', ''),
-          '$(sq "$JSON")'::jsonb
+          '$(sq "$JSON")'::jsonb,
+          NULLIF('$(sq "$LABELS_PG")', '')::text[]
         );"
     fi
     ;;
@@ -114,6 +118,19 @@ case "$OPERATION" in
         RETURNING id, task_type, COALESCE(task_key, task_pr_number, '') AS ref
       )
       SELECT id || ' ' || task_type || ' ' || ref FROM recovered;"
+    ;;
+
+  cloud-batch)
+    # Mark a task as submitted to the Anthropic Batch API.
+    # Usage: queue.sh cloud-batch <project-dir> <task-id> <batch-id>
+    TASK_ID="${3:?Missing task-id for cloud-batch}"
+    BATCH_ID="${4:?Missing batch-id for cloud-batch}"
+    psql -q -c "
+      UPDATE tasks
+      SET cloud_batch_id='$(sq "$BATCH_ID")',
+          cloud_batch_submitted_at=NOW(),
+          status='cloud_batch_pending'
+      WHERE id=$(sq "$TASK_ID") AND project_dir='$DIR';"
     ;;
 
   *)
