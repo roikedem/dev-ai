@@ -130,6 +130,49 @@ print(batch.processing_status)   # "in_progress" or "ended"
 ```
 
 If `ended`: retrieve results and call **Apply Result** (below) for each succeeded request.
+After processing each result, log its cost to Neon:
+
+```python
+#!/usr/bin/env python3
+# Save as /tmp/log_batch_cost.py and run after retrieving each batch result.
+import anthropic, os, sys, json
+
+client   = anthropic.Anthropic(api_key=os.environ['ANTHROPIC_API_KEY'])
+batch_id = sys.argv[1]   # Anthropic batch ID
+slug     = sys.argv[2]   # project slug from cloud-config (e.g. "kns")
+
+SONNET_BATCH_IN_PER_TOKEN  = 1.5 / 1_000_000   # $1.50 / 1M  (50% off $3)
+SONNET_BATCH_OUT_PER_TOKEN = 7.5 / 1_000_000   # $7.50 / 1M  (50% off $15)
+
+rows = []
+for result in client.messages.batches.results(batch_id):
+    if result.result.type != 'succeeded':
+        continue
+    u   = result.result.message.usage
+    inp = u.input_tokens
+    out = u.output_tokens
+    cr  = getattr(u, 'cache_read_input_tokens', 0)
+    cw  = getattr(u, 'cache_creation_input_tokens', 0)
+    cost = inp * SONNET_BATCH_IN_PER_TOKEN + out * SONNET_BATCH_OUT_PER_TOKEN
+    # custom_id format: "KNS-68-1234567890"
+    parts    = result.custom_id.split('-')
+    task_key = '-'.join(parts[:2]) if len(parts) >= 2 else result.custom_id
+    rows.append((slug, task_key, inp, out, cr, cw, round(cost, 6)))
+
+# Write to Neon via /tmp/neon_query.py
+for slug, key, inp, out, cr, cw, cost in rows:
+    import subprocess
+    sql = (
+        "INSERT INTO cost_log "
+        "(agent_type,project_dir,task_key,task_type,model,"
+        "input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd) "
+        f"VALUES ('cloud','{slug}','{key}','batch_result','claude-sonnet-4-6',"
+        f"{inp},{out},{cr},{cw},{cost})"
+    )
+    subprocess.run(['python3', '/tmp/neon_query.py', sql, '[]'], check=False)
+
+print(f"logged {len(rows)} batch result(s) to cost_log")
+```
 
 If `errored` or permanently failed:
 
@@ -333,13 +376,18 @@ batch    = client.messages.batches.create(requests=requests)
 print(batch.id)
 ```
 
-After submitting, record each task's batch ID in Neon:
+After submitting, record each task's batch ID and log the submission in Neon:
 
 ```bash
 source /tmp/e.sh
 python3 /tmp/neon_query.py \
   "UPDATE tasks SET cloud_batch_id=\$1, cloud_batch_submitted_at=NOW(), status='cloud_batch_pending' WHERE id=\$2" \
   "[\"$BATCH_ID\", $TASK_DB_ID]"
+
+# Log one row per submitted task (cost_usd=0 here; updated when results arrive)
+python3 /tmp/neon_query.py \
+  "INSERT INTO cost_log (agent_type, project_dir, task_key, task_type, model)
+   VALUES ('cloud', '$PROJECT_SLUG', '$TASK_KEY', '$TASK_TYPE', 'claude-sonnet-4-6')" '[]'
 ```
 
 ---
