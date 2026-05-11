@@ -28,6 +28,7 @@ chmod +x \
   "$DEV_AI_ROOT/scripts/claude-jira-cron.sh" \
   "$DEV_AI_ROOT/scripts/poll-jira.sh" \
   "$DEV_AI_ROOT/scripts/poll-github.sh" \
+  "$DEV_AI_ROOT/scripts/for-all-projects.sh" \
   "$DEV_AI_ROOT/scripts/queue.sh" \
   "$DEV_AI_ROOT/scripts/session-setup.sh" \
   "$DEV_AI_ROOT/scripts/cron-setup.sh"
@@ -56,7 +57,19 @@ else
 fi
 
 echo
-echo "Add these lines to crontab (crontab -e):"
-echo "*/5 * * * * $DEV_AI_ROOT/scripts/poll-jira.sh $PROJECT_DIR"
-echo "*/5 * * * * $DEV_AI_ROOT/scripts/poll-github.sh $PROJECT_DIR"
-echo "*/5 * * * * $DEV_AI_ROOT/scripts/claude-jira-cron.sh $PROJECT_DIR"
+echo "Add this project to ~/.config/dev-ai.json:"
+echo "  {\"dir\": \"$PROJECT_DIR\", \"enabled\": true}"
+echo ""
+echo "If ~/.config/dev-ai.json doesn't exist yet, create it:"
+cat <<EOF
+  {
+    "projects": [
+      {"dir": "$PROJECT_DIR", "enabled": true}
+    ]
+  }
+EOF
+echo ""
+echo "Crontab lines (only needed once, not per project):"
+echo "*/5 * * * * $DEV_AI_ROOT/scripts/for-all-projects.sh poll-jira.sh"
+echo "*/5 * * * * $DEV_AI_ROOT/scripts/for-all-projects.sh poll-github.sh"
+echo "*/5 * * * * $DEV_AI_ROOT/scripts/for-all-projects.sh claude-jira-cron.sh"
