@@ -67,10 +67,13 @@ if [ ! -d "$HOME/.nvm" ]; then
     curl -sf https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 fi
 export NVM_DIR="$HOME/.nvm"
+# nvm uses unbound variables internally — suspend strict mode around it
+set +eu
 [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
 nvm install --lts
 nvm use --lts
 nvm alias default node
+set -eu
 
 # ── 3. Claude Code CLI ───────────────────────────────────────────────────────
 step "Installing Claude Code CLI"
