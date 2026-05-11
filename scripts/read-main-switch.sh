@@ -5,5 +5,5 @@ if [ -f "$SWITCH_FILE" ]; then
     cat "$SWITCH_FILE" | tr -d '[:space:]'
     echo
 else
-    echo "ON"
+    echo "OFF"
 fi
