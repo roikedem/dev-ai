@@ -78,9 +78,20 @@ with open(sys.argv[1], 'w') as f:
 print("install.sh patched.")
 PYEOF
 
+# Self-test: verify decryption works before committing
+echo "Verifying decryption..."
+dec() { printf '%s' "$1" | openssl enc -d -aes-256-cbc -pbkdf2 -a -pass "pass:$PASSPHRASE"; }
+dec "$ANTHROPIC_ENC" > /dev/null || { echo "ERROR: self-test failed — decryption broken"; exit 1; }
+dec "$GH_TOKEN_ENC"  > /dev/null || { echo "ERROR: self-test failed — decryption broken"; exit 1; }
+dec "$JIRA_ENC"      > /dev/null || { echo "ERROR: self-test failed — decryption broken"; exit 1; }
+dec "$NEON_ENC"      > /dev/null || { echo "ERROR: self-test failed — decryption broken"; exit 1; }
+echo "Self-test OK"
+
+# Commit and push so the new machine always gets fresh blobs
 echo ""
-echo "Done. install.sh now contains encrypted credentials."
-echo "Commit the updated install.sh — the passphrase is NOT stored anywhere."
+git -C "$DEV_AI_DIR" add install.sh
+git -C "$DEV_AI_DIR" commit -m "chore: re-seal credentials in install.sh"
+git -C "$DEV_AI_DIR" push
 echo ""
-echo "To verify decryption works:"
-echo "  echo '$ANTHROPIC_ENC' | openssl enc -d -aes-256-cbc -pbkdf2 -a -pass 'pass:YOUR_PASSPHRASE'"
+echo "Done. install.sh sealed, committed, and pushed."
+echo "On the new machine: git pull && ./install.sh"
