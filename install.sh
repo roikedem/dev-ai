@@ -110,9 +110,12 @@ chmod 600 "$HOME/.config/dev-ai-neon-connection-params"
 echo "Credential files written to ~/.config/"
 
 # ── 6. gh auth — log in as ClaudeCodeRoiAgent ────────────────────────────────
-step "Authenticating gh CLI as ClaudeCodeRoiAgent"
-printf '%s' "$GH_CLAUDE_TOKEN" | gh auth login --with-token
-gh auth status
+# Scripts use GH_TOKEN env var directly, so gh auth login is optional.
+# Failure here is non-fatal — token scope may not satisfy gh's validation.
+step "Authenticating gh CLI as ClaudeCodeRoiAgent (optional)"
+printf '%s' "$GH_CLAUDE_TOKEN" | gh auth login --with-token 2>&1 \
+    && gh auth status \
+    || warn "gh auth login failed — scripts will use GH_TOKEN env var directly (this is fine)"
 
 # ── 7. Clone dev-ai repo ─────────────────────────────────────────────────────
 step "Cloning dev-ai repo"
