@@ -35,7 +35,7 @@ JQL="project=$PROJECT_KEY AND assignee=\"$ASSIGNEE\" AND statusCategory != Done 
 ENCODED_JQL=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$JQL")
 
 RESPONSE=$(curl -sf -u "$EMAIL:$API_TOKEN" -H "Accept: application/json" \
-    "$BASE_URL/search/jql?jql=$ENCODED_JQL&maxResults=20&fields=summary,status,comment,labels")
+    "$BASE_URL/search/jql?jql=$ENCODED_JQL&maxResults=20&fields=summary,status,comment")
 
 if [ $? -ne 0 ]; then
     log "Jira API request failed"
@@ -50,23 +50,14 @@ while IFS= read -r issue; do
     KEY=$(echo "$issue" | jq -r '.key')
     SUMMARY=$(echo "$issue" | jq -r '.fields.summary')
     STATUS=$(echo "$issue" | jq -r '.fields.status.name')
-    LABELS=$(echo "$issue" | jq -c '.fields.labels // []')
-
-    # Only local agents handle issues with local-dev-env or local-test-env labels.
-    # Cloud agent handles everything else — skip those here.
-    HAS_LOCAL=$(echo "$LABELS" | jq -r 'map(select(. == "local-dev-env" or . == "local-test-env")) | length > 0')
-    if [ "$HAS_LOCAL" != "true" ]; then
-        continue
-    fi
 
     TASK=$(jq -nc \
         --arg type "jira_issue" \
         --arg key "$KEY" \
         --arg summary "$SUMMARY" \
         --arg status "$STATUS" \
-        --argjson labels "$LABELS" \
         --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        '{type:$type, key:$key, summary:$summary, status:$status, labels:$labels, queued_at:$ts}')
+        '{type:$type, key:$key, summary:$summary, status:$status, queued_at:$ts}')
     INSERTED=$("$QUEUE_SH" push "$PROJECT_DIR" "$TASK" "issue:$KEY")
     if [ "$INSERTED" = "1" ]; then
         log "queued issue $KEY: $SUMMARY"
@@ -86,9 +77,8 @@ while IFS= read -r issue; do
             --arg comment_id "$COMMENT_ID" \
             --arg author "$COMMENT_AUTHOR" \
             --arg body "$COMMENT_BODY" \
-            --argjson labels "$LABELS" \
             --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            '{type:$type, key:$key, comment_id:$comment_id, author:$author, body:$body, labels:$labels, queued_at:$ts}')
+            '{type:$type, key:$key, comment_id:$comment_id, author:$author, body:$body, queued_at:$ts}')
         INSERTED=$("$QUEUE_SH" push "$PROJECT_DIR" "$TASK" "comment:$KEY:$COMMENT_ID")
         if [ "$INSERTED" = "1" ]; then
             log "queued comment $COMMENT_ID on $KEY by $COMMENT_AUTHOR"

@@ -23,37 +23,6 @@ export GH_TOKEN=$(cat "$AGENT_TOKEN_FILE")
 
 AGENT_DISPLAY="ClaudeCodeRoiAgent"
 
-# Jira credentials for label checking (only queue PRs tied to local-dev-env issues)
-JIRA_EMAIL="roikedem+admin@gmail.com"
-JIRA_TOKEN_FILE="$HOME/.config/atlassian-api-token-admin"
-JIRA_TOKEN=""
-JIRA_BASE_URL="https://intotodev.atlassian.net/rest/api/3"
-[ -f "$JIRA_TOKEN_FILE" ] && JIRA_TOKEN=$(cat "$JIRA_TOKEN_FILE" | tr -d '\r\n')
-
-# Cache: associative array JIRA_KEY -> "1" (has local-dev-env) or "0" (does not)
-declare -A _LABEL_CACHE
-
-# Returns 0 (true) if the Jira issue has local-dev-env label, 1 (false) otherwise.
-# Falls back to "include" when Jira is unreachable, to avoid silently dropping tasks.
-has_local_dev_label() {
-    local KEY="$1"
-    [ -z "$KEY" ] && return 1
-    if [[ -v _LABEL_CACHE["$KEY"] ]]; then
-        [ "${_LABEL_CACHE[$KEY]}" = "1" ] && return 0 || return 1
-    fi
-    if [ -z "$JIRA_TOKEN" ]; then
-        _LABEL_CACHE["$KEY"]="1"; return 0  # no credentials — include to be safe
-    fi
-    local RESP
-    RESP=$(curl -sf -u "$JIRA_EMAIL:$JIRA_TOKEN" -H "Accept: application/json" \
-        "$JIRA_BASE_URL/issue/$KEY?fields=labels" 2>/dev/null)
-    if echo "$RESP" | jq -e '[.fields.labels[]?] | contains(["local-dev-env"])' > /dev/null 2>&1; then
-        _LABEL_CACHE["$KEY"]="1"; return 0
-    else
-        _LABEL_CACHE["$KEY"]="0"; return 1
-    fi
-}
-
 # Build list of repos to poll from the repos array
 mapfile -t REPOS < <(jq -r '.repos[].github' "$CONFIG")
 
@@ -79,14 +48,6 @@ poll_repo() {
         local PR_TITLE PR_BRANCH
         PR_TITLE=$(echo "$OPEN_PRS" | jq -r --argjson n "$PR_NUM" '.[] | select(.number==$n) | .title')
         PR_BRANCH=$(echo "$OPEN_PRS" | jq -r --argjson n "$PR_NUM" '.[] | select(.number==$n) | .head.ref')
-
-        # Only queue events for issues that need local-dev-env handling.
-        # Cloud agent handles GitHub feedback on all other PRs.
-        local JIRA_KEY_FROM_BRANCH
-        JIRA_KEY_FROM_BRANCH=$(echo "$PR_BRANCH" | grep -oE '^[A-Z]+-[0-9]+' || echo "")
-        if ! has_local_dev_label "$JIRA_KEY_FROM_BRANCH"; then
-            continue
-        fi
 
         # Review comments (inline)
         local COMMENTS HUMAN_COMMENTS
@@ -199,12 +160,6 @@ poll_repo() {
         MERGED_PR_NUM=$(echo "$pr" | jq -r '.number')
         MERGED_TITLE=$(echo "$pr" | jq -r '.title')
         MERGED_BRANCH=$(echo "$pr" | jq -r '.head.ref')
-
-        local MERGED_JIRA_KEY
-        MERGED_JIRA_KEY=$(echo "$MERGED_BRANCH" | grep -oE '^[A-Z]+-[0-9]+' || echo "")
-        if ! has_local_dev_label "$MERGED_JIRA_KEY"; then
-            continue
-        fi
         local TASK INSERTED
         TASK=$(jq -nc \
             --arg type "github_pr_merged" \

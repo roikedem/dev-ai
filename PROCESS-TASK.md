@@ -29,17 +29,6 @@ When invoked from cron, a single task has been popped from the queue and its det
 ---
 
 
-## Model Signature
-
-End **every** Jira comment and GitHub PR comment you post with this exact signature on its own line:
-
-```
----
-*Processed by Claude Sonnet 4.6 (local agent)*
-```
-
----
-
 ## Session Setup
 
 Before anything else, run:
@@ -465,97 +454,6 @@ git checkout {default_branch} && git pull
    mkdir -p ~/dev-context/archive
    mv "$TASK_CONTEXT_DIRECTORY" ~/dev-context/archive/
    ```
-
----
-
----
-
-## Local Test Flow
-
-This section applies when `claude-jira-cron.sh` sets the prompt to "Local Test Flow" — i.e. the Jira issue has the label `local-test-env` but **not** `local-dev-env`. The cloud agent has already implemented the task and opened a PR. Your job is to test it in the local environment and document the results.
-
-### LT-1. Read the Issue and Find the PR
-
-1. Read the full issue and its linked PRs:
-   - `mcp__atlassian__getJiraIssue` with `cloudId: {jira_cloud_id}`
-   - `mcp__atlassian__getJiraIssueRemoteIssueLinks` to find the PR URL(s)
-2. From each PR URL, extract the repo and branch name.
-
-### LT-2. Check Out All Branches Simultaneously
-
-For **every** repo in `.jira-process.json` that has a linked branch, check it out now (before testing anything):
-
-```bash
-git -C /path/to/repo fetch origin
-git -C /path/to/repo checkout <branch-name>
-```
-
-All repos must be on the feature branch at the same time — the system is tested as a whole, not repo by repo.
-
-### LT-3. Write the Test Plan
-
-Before running any test:
-
-1. Read the issue description and the PR diff (`gh pr diff <number> --repo {repo}`) to understand what changed.
-2. Write `$TASK_CONTEXT_DIRECTORY/testplan.txt` with:
-   - What changed (one paragraph)
-   - Numbered test cases, each with: action → expected result
-   - Affected URLs or entry points
-
-3. Post the test plan as a Jira comment: `mcp__atlassian__addCommentToJiraIssue`
-
-### LT-4. Execute the Tests
-
-Run all of:
-
-1. Automated test commands from `.jira-process.json`:
-   ```bash
-   {test_commands.backend}
-   {test_commands.frontend}
-   ```
-
-2. For each affected URL, take a screenshot:
-   ```bash
-   node ~/projects/dev-ai/scripts/screenshot.js "<url>" "<css-selector>" "$TASK_CONTEXT_DIRECTORY/after.png"
-   ```
-
-3. Manually verify each acceptance criterion from the issue in the browser.
-
-### LT-5. Post Results
-
-Post a Jira comment with pass/fail for each test case, error output if any, and screenshots if taken.
-
-Post the same summary as a comment on the GitHub PR:
-```bash
-gh api repos/{repo}/issues/<pr-number>/comments \
-  --method POST \
-  --field body="Local test results: <summary>"
-```
-
-### LT-6. If All Tests Pass
-
-1. Add `Locally tested` label to the Jira issue:
-
-   Use `mcp__atlassian__fetch` to PUT:
-   ```
-   PUT /rest/api/3/issue/$TASK_KEY
-   {"update": {"labels": [{"add": "Locally tested"}]}}
-   ```
-
-2. Keep Jira status as **Review** — no transition. The PR awaits human review.
-
-3. Return all repos to default branch:
-   ```bash
-   git -C /path/to/repo checkout {default_branch}
-   ```
-
-### LT-7. If Any Test Fails
-
-1. Post a detailed failure comment on Jira **and** the GitHub PR — include exact error output and which test case failed.
-
-2. Transition Jira → **In Progress** so the cloud agent detects it and fixes the issue.
-
-3. Return all repos to default branch.
 
 ---
 
