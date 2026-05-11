@@ -109,13 +109,16 @@ chmod 600 "$HOME/.config/dev-ai-neon-connection-params"
 
 echo "Credential files written to ~/.config/"
 
-# ── 6. gh auth — log in as ClaudeCodeRoiAgent ────────────────────────────────
-# Scripts use GH_TOKEN env var directly, so gh auth login is optional.
-# Failure here is non-fatal — token scope may not satisfy gh's validation.
-step "Authenticating gh CLI as ClaudeCodeRoiAgent (optional)"
+# ── 6. GitHub credentials ────────────────────────────────────────────────────
+step "Configuring git credentials for github.com"
+git config --global credential.helper store
+printf 'https://x-access-token:%s@github.com\n' "$GH_CLAUDE_TOKEN" > "$HOME/.git-credentials"
+chmod 600 "$HOME/.git-credentials"
+echo "git credentials written — HTTPS clones will authenticate automatically"
+
+# gh auth login is optional (token may lack read:org scope but still works for git)
 printf '%s' "$GH_CLAUDE_TOKEN" | gh auth login --with-token 2>&1 \
-    && gh auth status \
-    || warn "gh auth login failed — scripts will use GH_TOKEN env var directly (this is fine)"
+    || warn "gh auth login skipped — git clone will still work via ~/.git-credentials"
 
 # ── 7. Clone dev-ai repo ─────────────────────────────────────────────────────
 step "Cloning dev-ai repo"
