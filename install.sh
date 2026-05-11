@@ -41,7 +41,7 @@ read -rs -p "Encryption passphrase: " PASSPHRASE; echo
 PASSPHRASE=$(printf '%s' "$PASSPHRASE" | tr -d '\r')  # strip stray CR (WSL terminals)
 
 dec() {
-    printf '%s' "$1" | openssl enc -d -aes-256-cbc -pbkdf2 -a -pass "pass:$PASSPHRASE" \
+    printf '%s' "$1" | openssl enc -d -aes-256-cbc -pbkdf2 -a -A -pass "pass:$PASSPHRASE" \
         || { echo "ERROR: decryption failed — wrong passphrase?" >&2; exit 1; }
 }
 

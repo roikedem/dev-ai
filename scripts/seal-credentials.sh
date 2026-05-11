@@ -80,7 +80,7 @@ PYEOF
 
 # Self-test: verify decryption works before committing
 echo "Verifying decryption..."
-dec() { printf '%s' "$1" | openssl enc -d -aes-256-cbc -pbkdf2 -a -pass "pass:$PASSPHRASE"; }
+dec() { printf '%s' "$1" | openssl enc -d -aes-256-cbc -pbkdf2 -a -A -pass "pass:$PASSPHRASE"; }
 dec "$ANTHROPIC_ENC" > /dev/null || { echo "ERROR: self-test failed — decryption broken"; exit 1; }
 dec "$GH_TOKEN_ENC"  > /dev/null || { echo "ERROR: self-test failed — decryption broken"; exit 1; }
 dec "$JIRA_ENC"      > /dev/null || { echo "ERROR: self-test failed — decryption broken"; exit 1; }
