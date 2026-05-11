@@ -15,7 +15,7 @@ cd "$REPO_ROOT"
 # Cron has a minimal PATH — extend it with common user install locations
 export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
 export NVM_DIR="$HOME/.nvm"
-set +eu; [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"; set -eu
+[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh" || true
 
 SWITCH="$($READ_MAIN_SWITCH | tr -d '\r\n')"
 
