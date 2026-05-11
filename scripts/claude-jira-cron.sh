@@ -118,24 +118,49 @@ while IFS= read -r line; do
     echo "[$(ts)] $line" >> "$LOG"
 done <<< "$CLAUDE_OUTPUT"
 
-# Extract and log token usage from JSON result
-USAGE_LINE=$(echo "$CLAUDE_OUTPUT" | python3 -c "
+# Extract token usage, log to file and Neon cost_log
+USAGE_JSON=$(echo "$CLAUDE_OUTPUT" | python3 -c "
 import sys, json
 for line in sys.stdin:
     line = line.strip()
-    if not line:
-        continue
+    if not line: continue
     try:
         obj = json.loads(line)
         if obj.get('type') == 'result':
             u = obj.get('usage', {})
-            cost = obj.get('total_cost_usd', 0)
-            print(f\"tokens in={u.get('input_tokens',0)} cache_read={u.get('cache_read_input_tokens',0)} out={u.get('output_tokens',0)} cost=\${cost:.4f}\")
+            print(json.dumps({
+                'in':  u.get('input_tokens', 0),
+                'cr':  u.get('cache_read_input_tokens', 0),
+                'cw':  u.get('cache_write_input_tokens', 0),
+                'out': u.get('output_tokens', 0),
+                'cost': obj.get('total_cost_usd', 0)
+            }))
             break
-    except Exception:
-        pass
+    except: pass
 " 2>/dev/null)
-[ -n "$USAGE_LINE" ] && log "usage: $USAGE_LINE"
+
+if [ -n "$USAGE_JSON" ]; then
+    _IN=$(echo "$USAGE_JSON"   | jq -r '.in')
+    _CR=$(echo "$USAGE_JSON"   | jq -r '.cr')
+    _CW=$(echo "$USAGE_JSON"   | jq -r '.cw')
+    _OUT=$(echo "$USAGE_JSON"  | jq -r '.out')
+    _COST=$(echo "$USAGE_JSON" | jq -r '.cost')
+    log "usage: tokens in=$_IN cache_read=$_CR out=$_OUT cost=\$$_COST"
+
+    CONN_PARAMS="$HOME/.config/dev-ai-neon-connection-params"
+    if [ -f "$CONN_PARAMS" ]; then
+        set -a && source "$CONN_PARAMS" && set +a
+        _DIR=$(printf '%s' "$REPO_ROOT"  | sed "s/'/''/g")
+        _KEY=$(printf '%s' "$TASK_KEY"   | sed "s/'/''/g")
+        _TYP=$(printf '%s' "$TASK_TYPE"  | sed "s/'/''/g")
+        psql -q -c "INSERT INTO cost_log
+            (agent_type, project_dir, task_key, task_type, model,
+             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
+          VALUES
+            ('local','$_DIR','$_KEY','$_TYP','claude-sonnet-4-6',
+             $_IN, $_OUT, $_CR, $_CW, $_COST);" 2>/dev/null || true
+    fi
+fi
 log "claude finished (exit $EXIT)"
 
 if [ $EXIT -eq 0 ]; then
