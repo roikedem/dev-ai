@@ -14,4 +14,5 @@ CONTENT=$(printf '%s\n' "$VALUE" | base64 -w 0)
 
 curl -sf -X PUT -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github+json" \
   "$API_URL" -d "{\"message\":\"set MAIN_SWITCH to $VALUE\",\"content\":\"$CONTENT\",\"sha\":\"$SHA\"}" \
-  | jq -r '"Main Switch set to \($VALUE) — commit: " + .commit.sha[:8]' --arg VALUE "$VALUE"
+  > /dev/null
+echo "now: $("$(dirname "$0")/read-main-switch.sh")"
