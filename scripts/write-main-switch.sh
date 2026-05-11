@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-gh api \
-  --method PATCH \
-  repos/roikedem/dev-ai/actions/variables/MAIN_SWITCH \
-  -f name=MAIN_SWITCH \
-  -f value="${1}"
+# Usage: write-main-switch.sh ON|OFF
+VALUE="${1:?Usage: write-main-switch.sh ON|OFF}"
+SWITCH_FILE="$HOME/.config/dev-ai-main-switch"
+printf '%s\n' "$VALUE" > "$SWITCH_FILE"
+echo "Main Switch set to $VALUE ($SWITCH_FILE)"
