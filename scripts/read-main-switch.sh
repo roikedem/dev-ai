@@ -1,3 +1,5 @@
 #!/usr/bin/env bash
-export GH_TOKEN=$(cat ~/.config/claude-agent-gh-token)
-gh api repos/roikedem/dev-ai/actions/variables/MAIN_SWITCH --jq .value
+curl -sf \
+  -H "Accept: application/vnd.github.raw" \
+  "https://api.github.com/repos/roikedem/dev-ai-switch/contents/main-switch" \
+  | tr -d '\r\n'
