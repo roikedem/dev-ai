@@ -32,19 +32,25 @@ chmod +x \
   "$DEV_AI_ROOT/scripts/session-setup.sh" \
   "$DEV_AI_ROOT/scripts/cron-setup.sh"
 
+# gh auth switch is best-effort — scripts use GH_TOKEN env var directly
 if command -v gh >/dev/null 2>&1; then
-  if gh auth switch --user ClaudeCodeRoiAgent >/dev/null 2>&1; then
-    echo "Switched gh auth to user ClaudeCodeRoiAgent"
-  else
-    echo "Warning: could not switch gh auth to user ClaudeCodeRoiAgent" >&2
-    echo "Run manually: gh auth switch --user ClaudeCodeRoiAgent" >&2
-  fi
-else
-  echo "Warning: gh command not found; install GitHub CLI and authenticate manually." >&2
+  gh auth switch --user ClaudeCodeRoiAgent >/dev/null 2>&1 \
+    && echo "Switched gh auth to user ClaudeCodeRoiAgent" \
+    || echo "Note: gh auth switch skipped — scripts use GH_TOKEN env var directly"
 fi
 
+# Load nvm so npm is available (nvm is not active in all shell contexts)
+export NVM_DIR="$HOME/.nvm"
+set +eu
+[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+set -eu
+
 if [ -f "$DEV_AI_ROOT/package.json" ]; then
-  (cd "$DEV_AI_ROOT" && npm install puppeteer)
+  if command -v npm >/dev/null 2>&1; then
+    (cd "$DEV_AI_ROOT" && npm install puppeteer)
+  else
+    echo "Warning: npm not found; install Node.js via nvm then re-run this script." >&2
+  fi
 else
   echo "Warning: package.json not found in $DEV_AI_ROOT; skipped npm install puppeteer" >&2
 fi
