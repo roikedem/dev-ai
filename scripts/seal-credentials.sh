@@ -15,7 +15,7 @@ INSTALL_SH="$DEV_AI_DIR/install.sh"
 missing=0
 for f in \
     "$HOME/.config/anthropic-api-key" \
-    "$HOME/.config/atlassian-api-token-admin" \
+    "$HOME/.config/atlassian-api-token" \
     "$HOME/.config/dev-ai-neon-connection-params"; do
     [ -f "$f" ] || { echo "ERROR: missing $f"; missing=1; }
 done
@@ -41,7 +41,7 @@ echo "Encrypting credentials..."
 
 ANTHROPIC_ENC=$(cat "$HOME/.config/anthropic-api-key"          | tr -d '\r\n' | enc)
 GH_TOKEN_ENC=$(cat "$GH_TOKEN_FILE"                            | tr -d '\r\n' | enc)
-JIRA_ENC=$(cat "$HOME/.config/atlassian-api-token-admin"        | tr -d '\r\n' | enc)
+JIRA_ENC=$(cat "$HOME/.config/atlassian-api-token"              | tr -d '\r\n' | enc)
 
 # Neon params — encrypt the whole file content as one blob
 NEON_ENC=$(cat "$HOME/.config/dev-ai-neon-connection-params"   | enc)
