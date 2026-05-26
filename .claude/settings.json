@@ -4,5 +4,10 @@
       "command": "/home/roi/projects/dev-ai/scripts/mcp-postgres.sh",
       "args": []
     }
+  },
+  "permissions": {
+    "allow": [
+      "Bash(*)"
+    ]
   }
 }
