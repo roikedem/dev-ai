@@ -13,14 +13,16 @@ export default function SignIn() {
     setLoading(true);
     setError('');
     try {
-      const result = await signIn('resend', {
+      const result = await signIn('nodemailer', {
         email,
         callbackUrl: '/',
         redirect: false,
       });
-      if (result?.error) {
+      if (result?.error === 'AccessDenied') {
         setError('Email not authorized. Ask the admin to add you.');
-      } else if (result?.url) {
+      } else if (result?.error) {
+        setError(`Sign in failed: ${result.error}`);
+      } else {
         window.location.href = '/auth/verify-request';
       }
     } finally {

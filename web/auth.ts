@@ -1,6 +1,6 @@
 import NextAuth from 'next-auth';
 import PostgresAdapter from '@auth/pg-adapter';
-import Resend from 'next-auth/providers/resend';
+import Nodemailer from 'next-auth/providers/nodemailer';
 import { authConfig } from './auth.config';
 import pool from './lib/db';
 
@@ -10,9 +10,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
   adapter: PostgresAdapter(pool),
   providers: [
-    Resend({
-      apiKey: process.env.AUTH_RESEND_KEY,
-      from: process.env.EMAIL_FROM ?? 'dev-ai <noreply@roikedem.com>',
+    Nodemailer({
+      server: {
+        host: process.env.SMTP_HOST,
+        port: Number(process.env.SMTP_PORT ?? 587),
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASSWORD,
+        },
+      },
+      from: process.env.EMAIL_FROM ?? 'roi@hazerem.com',
     }),
   ],
   callbacks: {

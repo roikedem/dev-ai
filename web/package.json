@@ -9,11 +9,10 @@
     "migrate": "node -e \"require('./scripts/migrate.js')\""
   },
   "dependencies": {
+    "@auth/pg-adapter": "^0.7.0",
     "next": "^15.3.0",
     "next-auth": "5.0.0-beta.25",
-    "@auth/pg-adapter": "^0.7.0",
     "pg": "^8.13.0",
-    "resend": "^4.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
