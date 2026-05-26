@@ -1,5 +1,6 @@
 import NextAuth from 'next-auth';
 import PostgresAdapter from '@auth/pg-adapter';
+import Resend from 'next-auth/providers/resend';
 import { authConfig } from './auth.config';
 import pool from './lib/db';
 
@@ -8,8 +9,13 @@ const ADMIN_EMAIL = 'roikedem@gmail.com';
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
   adapter: PostgresAdapter(pool),
+  providers: [
+    Resend({
+      apiKey: process.env.AUTH_RESEND_KEY,
+      from: process.env.EMAIL_FROM ?? 'dev-ai <noreply@roikedem.com>',
+    }),
+  ],
   callbacks: {
-    ...authConfig.callbacks,
     signIn: async ({ user }) => {
       if (!user.email) return false;
       const { rows } = await pool.query(

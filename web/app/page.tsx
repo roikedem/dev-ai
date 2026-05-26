@@ -1,7 +1,8 @@
 import { auth } from '@/auth';
-import { getTasks, getDistinctProjects, projectLabel, jiraUrl, githubPrUrl, type TaskGroup } from '@/lib/tasks';
+import { getTasks, getDistinctProjects, jiraUrl, githubPrUrl, type TaskGroup } from '@/lib/tasks';
 import Link from 'next/link';
 import StatusChanger from './StatusChanger';
+import FilterBar from './FilterBar';
 
 const TASK_TYPE_LABELS: Record<string, string> = {
   jira_issue: 'Issue',
@@ -62,59 +63,7 @@ export default async function Dashboard({
 
       {/* Filters */}
       <div className="bg-white border-b border-gray-200 px-6 py-3">
-        <form className="flex flex-wrap gap-3 text-sm">
-          <select
-            name="project"
-            defaultValue={params.project ?? ''}
-            className="border border-gray-300 rounded px-2 py-1 bg-white"
-            onChange={(e) => {
-              const f = new URLSearchParams(params as Record<string, string>);
-              if (e.target.value) f.set('project', e.target.value); else f.delete('project');
-              window.location.search = f.toString();
-            }}
-          >
-            <option value="">All projects</option>
-            {projects.map((p) => (
-              <option key={p} value={p}>{projectLabel(p)}</option>
-            ))}
-          </select>
-          <select
-            name="type"
-            defaultValue={params.type ?? ''}
-            className="border border-gray-300 rounded px-2 py-1 bg-white"
-          >
-            <option value="">All types</option>
-            {Object.entries(TASK_TYPE_LABELS).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
-            ))}
-          </select>
-          <select
-            name="status"
-            defaultValue={params.status ?? ''}
-            className="border border-gray-300 rounded px-2 py-1 bg-white"
-          >
-            <option value="">All statuses</option>
-            <option value="queued">Queued</option>
-            <option value="in_progress">In progress</option>
-            <option value="done">Done</option>
-          </select>
-          <input
-            type="text"
-            name="search"
-            defaultValue={params.search ?? ''}
-            placeholder="Search key / payload..."
-            className="border border-gray-300 rounded px-2 py-1 flex-1 min-w-40"
-          />
-          <button
-            type="submit"
-            className="bg-gray-900 text-white rounded px-3 py-1 hover:bg-gray-700"
-          >
-            Filter
-          </button>
-          {Object.values(params).some(Boolean) && (
-            <a href="/" className="text-gray-500 hover:text-gray-900 py-1">Clear</a>
-          )}
-        </form>
+        <FilterBar params={params} projects={projects} />
       </div>
 
       {/* Stats */}
