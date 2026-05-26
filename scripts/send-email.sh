@@ -12,8 +12,15 @@ else
     BODY=$(cat)
 fi
 
+
+name="רואי מהזרם"
+from_email="roi@hazerem.com"
+encoded=$(printf "%s" "$name" | base64)
+header_from="=?UTF-8?B?${encoded}?= <$from_email>"
+
 {
     echo "To: $TO"
+    echo "From: $header_from"
     echo "Subject: $SUBJECT"
     echo "MIME-Version: 1.0"
     echo "Content-Type: text/html; charset=UTF-8"
