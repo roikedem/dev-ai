@@ -17,18 +17,22 @@ log() { echo "[$(ts)] $*" >> "$LOG"; }
 
 [ -f "$CONFIG" ] || { log "missing $CONFIG"; exit 1; }
 
-API_TOKEN_FILE="$HOME/.config/atlassian-api-token-admin"
+API_TOKEN_FILE="$HOME/.config/atlassian-api-token"
 [ -f "$API_TOKEN_FILE" ] || { log "missing $API_TOKEN_FILE"; exit 1; }
 API_TOKEN=$(cat "$API_TOKEN_FILE" | tr -d '\r\n')
 
 CLOUD_ID=$(jq -r '.jira_cloud_id' "$CONFIG")
 PROJECT_KEY=$(jq -r '.jira_project_key' "$CONFIG")
 ASSIGNEE=$(jq -r '.jira_assignee' "$CONFIG")
-EMAIL="roikedem+admin@gmail.com"
+AGENT_ACCOUNT_ID=$(jq -r '.jira_agent_account_id // ""' "$CONFIG")
+EMAIL="roikedem+claudecode@gmail.com"
 
 BASE_URL="https://intotodev.atlassian.net/rest/api/3"
 
-ADDED=0
+ISSUES_SEEN=0
+ISSUES_NEW=0
+COMMENTS_SEEN=0
+COMMENTS_NEW=0
 
 # --- Fetch open issues assigned to Claude agent ---
 JQL="project=$PROJECT_KEY AND assignee=\"$ASSIGNEE\" AND statusCategory != Done ORDER BY updated DESC"
@@ -42,6 +46,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+ISSUES_SEEN=$(echo "$RESPONSE" | jq '(.issues // []) | length')
 ISSUES=$(echo "$RESPONSE" | jq -c '.issues[]')
 
 while IFS= read -r issue; do
@@ -61,13 +66,19 @@ while IFS= read -r issue; do
     INSERTED=$("$QUEUE_SH" push "$PROJECT_DIR" "$TASK" "issue:$KEY")
     if [ "$INSERTED" = "1" ]; then
         log "queued issue $KEY: $SUMMARY"
-        ADDED=$((ADDED + 1))
+        ISSUES_NEW=$((ISSUES_NEW + 1))
     fi
 
     # Queue any new comments on this issue (comments from humans, not from Claude agent)
-    COMMENTS=$(echo "$issue" | jq -c '.fields.comment.comments[]? | select(.author.displayName != "'"$ASSIGNEE"'")')
+    # Filter by accountId when available (more reliable than displayName which Jira may anonymize)
+    if [ -n "$AGENT_ACCOUNT_ID" ]; then
+        COMMENTS=$(echo "$issue" | jq -c --arg id "$AGENT_ACCOUNT_ID" '.fields.comment.comments[]? | select(.author.accountId != $id)')
+    else
+        COMMENTS=$(echo "$issue" | jq -c '.fields.comment.comments[]? | select(.author.displayName != "'"$ASSIGNEE"'")')
+    fi
     while IFS= read -r comment; do
         [ -z "$comment" ] && continue
+        COMMENTS_SEEN=$((COMMENTS_SEEN + 1))
         COMMENT_ID=$(echo "$comment" | jq -r '.id')
         COMMENT_BODY=$(echo "$comment" | jq -r '.body' | head -c 200)
         COMMENT_AUTHOR=$(echo "$comment" | jq -r '.author.displayName')
@@ -82,12 +93,12 @@ while IFS= read -r issue; do
         INSERTED=$("$QUEUE_SH" push "$PROJECT_DIR" "$TASK" "comment:$KEY:$COMMENT_ID")
         if [ "$INSERTED" = "1" ]; then
             log "queued comment $COMMENT_ID on $KEY by $COMMENT_AUTHOR"
-            ADDED=$((ADDED + 1))
+            COMMENTS_NEW=$((COMMENTS_NEW + 1))
         fi
     done <<< "$COMMENTS"
 
 done <<< "$ISSUES"
 
 TOTAL=$("$QUEUE_SH" count "$PROJECT_DIR")
-[ $ADDED -gt 0 ] && log "added $ADDED tasks — queue now has $TOTAL"
+log "polled: $ISSUES_SEEN issues ($ISSUES_NEW new), $COMMENTS_SEEN comments ($COMMENTS_NEW new) — queue=$TOTAL"
 exit 0

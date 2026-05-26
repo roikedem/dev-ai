@@ -14,10 +14,10 @@ set -euo pipefail
 # CREDENTIALS (AES-256-CBC encrypted — run scripts/seal-credentials.sh to update)
 # ─────────────────────────────────────────────────────────────────────────────
 
-ANTHROPIC_API_KEY_ENC="U2FsdGVkX1+L1POABMdbUvHgK9uZJ0AnVjLPhhTo2rlXonXPqu5UpAlGXrwlkGXV3PgVxAPTHrrZkIeTKk2AJ5e5pCSgp19DG2BVXjB9PxK6j65aihErSjfiOWIITu+NRCgNg5OWs7jnFThIu1Kj7wGs7wadhI6hdqctS5Ws/dI="
-GH_CLAUDE_TOKEN_ENC="U2FsdGVkX1+5tnbhWI8T029HyX2xHd2KTV9Yh22o14UQ+a2bmD2p44UYklvmrjEUJ+RoBOfh80V6ef+mTYq/Kg=="
-JIRA_API_TOKEN_ENC="U2FsdGVkX1820/zTE/Xd2Q2vVWNJR25e42MCCZFPM1w90agh6oEo2XUqpxCOtaEHVbGFQacFAVX32/9FgSNtC99x6bjkhuvVxV1+pWBnVD1/jEE9m67rLIxddJ10IpySl2LbcZcWrHZ//N55mWMK/L0Y3TDvpUWEgc681amEz+R5fp2nZD2rpyYTFrS0XUMjjMd94m9eqdS+4tQSshBPpNWmDLWle6BLW88NNkwl2RGnxotX6iSOaq91C06Zj2/6XIoRLOBcqbq9RUBiYrxZ3qt/lhradYhR8FH04G9Pww4="
-NEON_PARAMS_ENC="U2FsdGVkX1/Gzlj0zWGQc8LS7fks5lC1fGVUsCWuiApQfd9tjjM5zK4P7cM4/ciOSWeP5xcLcCfBWOp/JLDP/lfiXJr02EZ2ryj4iXX5bpUVflztmFmPLyLk0HUp3JlYpbCEElcVUfmyM0nHFF390EV96B0bw8RiVU9XMVJRyfibnvtSWroBfV5nM9WPPECCliEMvLQiZg7y310AkznNjWksC/U/CG03xOO0mZlmRI4VF4VAYaWt0c5p1bkf9lq06Br91jz3MiFDqVKL125paw=="
+ANTHROPIC_API_KEY_ENC="U2FsdGVkX18dLB88tn/qN/gwM73xqy9dcaHl3looSpnudQ/FdEJwPYlNbp9Mj/plWtXRMqpnu/LpzBBIpIRQnBeg2t555PlF33d2QQkG76C8HXjW6vwlDVuLcaYSEhvEjXDCdkZcJHZ/IbQNa1s98p+riBTIX2KXzBCx1x2/zCk="
+GH_CLAUDE_TOKEN_ENC="U2FsdGVkX1/PTDks3NW5WKcSZafLq7XqB+fnxT1cYhjFoG6ZYhu88pOctodkVlRjnXRwNzE9MAevOsrZbd+tXw=="
+JIRA_API_TOKEN_ENC="U2FsdGVkX18J52ezvw4m6x/CCKUMJC5wH4Cn+iXRIM6j4VYEByZG8D+hY/eBfUgGh20ZU1H8tcQWqjI7QOGLKluk6EASFCGw0UBY1yLiXW2nVqfGJC30Rnfuufovcc9lpY/5mpQ+U+wuhRFRESfJ2320ntuiEAVooXz+vkXDIyvDgPHKJ1jtllRMMSbiQjjD+XEMrZN4/pRhI+g4dIyuoRKPljVRP3p5/JEM65nQp5zRsjGGKOEwJBlyvq1SvfiGwdaCDNoF1oCz5XzbFHjqMKdJXg+FRrvkSOT61yFWvJs="
+NEON_PARAMS_ENC="U2FsdGVkX1/nnggghHju3TvNQDmjt78SpsFiKQkkGu5W2q4QdgvIno042TjHOpudMJNSZoGFK9/OK6vYc4n9E1wDZpa5EHK/BpTK8O5a+1kCCV2yRf/4qxubDbIQY1sqMSgh8ikwkWNJ85eJBCupjc5NsLbvNfgRCx3SXITeGJlgrfTsPiYXDPdktYb3Qk1cdT1dh+Fv/cH2uvkEelFrY6sU+1elQBPhix7VUy26eJkGcT197CiIGPf3TEpZ3WhOov5CpKcp0MW9y9PYeJHCRg=="
 
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -101,8 +101,8 @@ chmod 600 "$HOME/.config/anthropic-api-key"
 printf '%s' "$GH_CLAUDE_TOKEN" > "$HOME/.config/claude-agent-gh-token"
 chmod 600 "$HOME/.config/claude-agent-gh-token"
 
-printf '%s' "$JIRA_API_TOKEN" > "$HOME/.config/atlassian-api-token-admin"
-chmod 600 "$HOME/.config/atlassian-api-token-admin"
+printf '%s' "$JIRA_API_TOKEN" > "$HOME/.config/atlassian-api-token"
+chmod 600 "$HOME/.config/atlassian-api-token"
 
 printf '%s\n' "$NEON_PARAMS" > "$HOME/.config/dev-ai-neon-connection-params"
 chmod 600 "$HOME/.config/dev-ai-neon-connection-params"
