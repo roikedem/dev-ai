@@ -9,6 +9,7 @@ const ADMIN_EMAIL = 'roikedem@gmail.com';
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
   adapter: PostgresAdapter(pool),
+  session: { strategy: 'jwt' },
   providers: [
     Nodemailer({
       server: {
