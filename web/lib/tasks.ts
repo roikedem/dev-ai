@@ -33,9 +33,22 @@ export interface TaskFilters {
   type?: string;
   status?: string;
   search?: string;
+  page?: number;
+  pageSize?: number;
 }
 
-export async function getTasks(filters: TaskFilters = {}): Promise<TaskGroup[]> {
+export interface TaskPage {
+  groups: TaskGroup[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export async function getTasks(filters: TaskFilters = {}): Promise<TaskPage> {
+  const page = Math.max(1, filters.page ?? 1);
+  const pageSize = filters.pageSize ?? 20;
+  const offset = (page - 1) * pageSize;
+
   const conditions: string[] = [];
   const params: unknown[] = [];
   let idx = 1;
@@ -60,17 +73,27 @@ export async function getTasks(filters: TaskFilters = {}): Promise<TaskGroup[]> 
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const { rows } = await pool.query<Task & { group_latest: string }>(
-    `SELECT *,
-       MAX(queued_at) OVER (PARTITION BY COALESCE(task_key, 'id:' || id::text)) AS group_latest
-     FROM tasks
-     ${where}
-     ORDER BY group_latest DESC, COALESCE(task_key, 'id:' || id::text), queued_at DESC
-     LIMIT 500`,
-    params
-  );
+  const [{ rows }, { rows: countRows }] = await Promise.all([
+    pool.query<Task & { group_latest: string }>(
+      `WITH paged_groups AS (
+         SELECT COALESCE(task_key, 'id:' || id::text) AS gk, MAX(queued_at) AS latest
+         FROM tasks ${where}
+         GROUP BY COALESCE(task_key, 'id:' || id::text)
+         ORDER BY MAX(queued_at) DESC
+         LIMIT $${idx} OFFSET $${idx + 1}
+       )
+       SELECT t.*, pg.latest AS group_latest
+       FROM tasks t
+       JOIN paged_groups pg ON COALESCE(t.task_key, 'id:' || t.id::text) = pg.gk
+       ORDER BY pg.latest DESC, COALESCE(t.task_key, 'id:' || t.id::text), t.queued_at DESC`,
+      [...params, pageSize, offset]
+    ),
+    pool.query<{ total: string }>(
+      `SELECT COUNT(DISTINCT COALESCE(task_key, 'id:' || id::text)) AS total FROM tasks ${where}`,
+      params
+    ),
+  ]);
 
-  // Group tasks by task_key (or individual id for keyless tasks)
   const groupMap = new Map<string, TaskGroup>();
   for (const row of rows) {
     const { group_latest, ...task } = row;
@@ -87,7 +110,12 @@ export async function getTasks(filters: TaskFilters = {}): Promise<TaskGroup[]> 
     groupMap.get(groupKey)!.tasks.push(task);
   }
 
-  return Array.from(groupMap.values());
+  return {
+    groups: Array.from(groupMap.values()),
+    total: parseInt(countRows[0].total, 10),
+    page,
+    pageSize,
+  };
 }
 
 export async function getTask(id: number): Promise<Task | null> {

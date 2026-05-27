@@ -36,14 +36,17 @@ function relativeTime(iso: string): string {
 export default async function Dashboard({
   searchParams,
 }: {
-  searchParams: Promise<{ project?: string; type?: string; status?: string; search?: string }>;
+  searchParams: Promise<{ project?: string; type?: string; status?: string; search?: string; page?: string }>;
 }) {
   const params = await searchParams;
+  const page = parseInt(params.page ?? '1', 10) || 1;
   const session = await auth();
-  const [groups, projects] = await Promise.all([
-    getTasks(params),
+  const [taskPage, projects] = await Promise.all([
+    getTasks({ ...params, page }),
     getDistinctProjects(),
   ]);
+  const { groups, total, pageSize } = taskPage;
+  const totalPages = Math.ceil(total / pageSize);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -68,9 +71,10 @@ export default async function Dashboard({
 
       {/* Stats */}
       <div className="px-6 py-2 text-xs text-gray-400 border-b border-gray-100 bg-white">
-        {groups.length} group{groups.length !== 1 ? 's' : ''}
+        {total} group{total !== 1 ? 's' : ''}
         {' · '}
-        {groups.reduce((s, g) => s + g.tasks.length, 0)} tasks
+        {groups.reduce((s, g) => s + g.tasks.length, 0)} tasks on this page
+        {totalPages > 1 && ` · page ${page} of ${totalPages}`}
       </div>
 
       {/* Task list */}
@@ -83,8 +87,53 @@ export default async function Dashboard({
             <GroupCard key={group.groupKey} group={group} />
           ))}
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-2 mt-6">
+            <Pager params={params} page={page} totalPages={totalPages} />
+          </div>
+        )}
       </main>
     </div>
+  );
+}
+
+function Pager({ params, page, totalPages }: {
+  params: Record<string, string | undefined>;
+  page: number;
+  totalPages: number;
+}) {
+  const pageUrl = (p: number) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v && k !== 'page') q.set(k, v);
+    }
+    if (p > 1) q.set('page', String(p));
+    const qs = q.toString();
+    return qs ? `/?${qs}` : '/';
+  };
+
+  const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
+
+  return (
+    <>
+      {page > 1 && (
+        <Link href={pageUrl(page - 1)} className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50">←</Link>
+      )}
+      {pages.map((p) => (
+        <Link
+          key={p}
+          href={pageUrl(p)}
+          className={`px-3 py-1 text-sm border rounded ${p === page ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-300 hover:bg-gray-50'}`}
+        >
+          {p}
+        </Link>
+      ))}
+      {page < totalPages && (
+        <Link href={pageUrl(page + 1)} className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50">→</Link>
+      )}
+    </>
   );
 }
 
