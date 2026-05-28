@@ -32,9 +32,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       );
       return rows.length > 0;
     },
-    session: async ({ session, user }) => {
-      session.user.id = user.id;
-      session.user.isAdmin = user.email === ADMIN_EMAIL;
+    session: async ({ session, token }) => {
+      if (token?.sub) session.user.id = token.sub;
+      session.user.isAdmin = session.user.email === ADMIN_EMAIL;
       return session;
     },
   },
