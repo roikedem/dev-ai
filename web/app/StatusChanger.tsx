@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 const STATUS_COLORS: Record<string, string> = {
   queued: 'bg-amber-100 text-amber-800',
@@ -15,19 +16,29 @@ export default function StatusChanger({
   taskId: number;
   status: string;
 }) {
+  const router = useRouter();
   const [status, setStatus] = useState(initialStatus);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
 
   async function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const next = e.target.value;
     setLoading(true);
+    setError(false);
     try {
       const res = await fetch('/api/tasks', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: taskId, status: next }),
       });
-      if (res.ok) setStatus(next);
+      if (res.ok) {
+        setStatus(next);
+        router.refresh();
+      } else {
+        setError(true);
+      }
+    } catch {
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -38,7 +49,8 @@ export default function StatusChanger({
       value={status}
       onChange={handleChange}
       disabled={loading}
-      className={`text-xs px-1.5 py-0.5 rounded border-0 font-medium cursor-pointer ${STATUS_COLORS[status] ?? 'bg-gray-100 text-gray-700'}`}
+      title={error ? 'Failed to update status' : undefined}
+      className={`text-xs px-1.5 py-0.5 rounded font-medium cursor-pointer ${error ? 'outline outline-1 outline-red-400' : 'border-0'} ${STATUS_COLORS[status] ?? 'bg-gray-100 text-gray-700'}`}
     >
       <option value="queued">queued</option>
       <option value="in_progress">in progress</option>
