@@ -142,7 +142,7 @@ If the issue involves any of the following, **backup the database before startin
 
 ## 3. Create a Git Branch
 
-- Branch off `{default_branch}` of the relevant repo.
+- Branch off each repo's **`base_branch`** from `repos[]` in `.jira-process.json` (falls back to `{default_branch}`). Repos can differ — e.g. `knesset-front` → `dev`, `knesset-data` → `master`. (See `PROCESS-TASK.md` §3 — the canonical playbook.)
 - Use the Jira issue key in the branch name:
 
 ```bash
@@ -274,11 +274,11 @@ git commit -m "{jira_project_key}-XX: brief description of what and why"
 
 ## 7. Create a Pull Request
 
-- Push the feature branch only — do NOT push to `{default_branch}`. The user reviews and merges the PR:
+- Push the feature branch only — never push to a repo's `base_branch`. Target the PR at that repo's **`base_branch`** (`--base`). PRs into an integration branch with `auto_merge_when_green: true` (e.g. `knesset-front` → `dev`) are merged automatically by `poll-github.sh` once checks are green; PRs into a production/default branch are reviewed and merged by Roi. See `PROCESS-TASK.md` §7 and PR Review §F (canonical).
 
 ```bash
 git push -u origin {jira_project_key}-XX-short-description
-gh pr create --title "{jira_project_key}-XX: brief description" --body "..."
+gh pr create --base <base_branch> --title "{jira_project_key}-XX: brief description" --body "..."
 ```
 
 - PR body should reference the Jira issue key and summarize what changed and why.

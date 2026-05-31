@@ -119,11 +119,12 @@ Log: `Transitioned Jira $TASK_KEY to In Progress`
 
 ## 3. Create a Git Branch
 
-- Branch off `{default_branch}` of the relevant repo.
+- Branch off each repo's **`base_branch`** (read from that repo's entry in `repos[]` in `.jira-process.json`; falls back to `{default_branch}` if the repo has no `base_branch`). Different repos in the same project may have different base branches — e.g. `knesset-front` branches off `dev`, `knesset-data` off `master`. Always `git fetch` and branch off the up-to-date remote base (`origin/<base_branch>`).
 - Use the Jira issue key in the branch name:
 
 ```bash
-git checkout -b "$TASK_KEY-short-description"
+git fetch origin
+git checkout -b "$TASK_KEY-short-description" "origin/<base_branch>"
 ```
 
 - Create a branch in every repo that needs changes (read `repos` from `.jira-process.json`).
@@ -252,13 +253,17 @@ git commit -m "$TASK_KEY: brief description of what and why"
 
 ## 7. Create a Pull Request
 
-- Push the feature branch only — do NOT push to `{default_branch}`. The user reviews and merges the PR:
+- Push the feature branch only — never push directly to a repo's `base_branch`. Target the PR at that repo's **`base_branch`** (from `repos[]` in `.jira-process.json`; fall back to `{default_branch}`):
 
 ```bash
 git push -u origin <branch-name>
-gh pr create --title "$TASK_KEY: brief description" --body "..."
+gh pr create --base <base_branch> --title "$TASK_KEY: brief description" --body "..."
 ```
 
+- **Who merges depends on the repo's base branch:**
+  - **Integration branch with `auto_merge_when_green: true`** (e.g. `knesset-front` → `dev`): the pipeline owns the merge. The PR targets `dev`, which never deploys to production, so merging it is safe. Merge it once **all required checks are green** (the `Vercel` deploy status == `success`) and there are **no unresolved review comments** — see PR Review → step F. Do not wait/block in this session; the Vercel build takes a few minutes, so the merge happens in a later poll/review cycle.
+  - **Production/default branch** (e.g. `knesset-data` → `master`): do **not** merge. Roi reviews and merges these himself — they deploy to production.
+  - **Promotion `dev` → `master`** is always a separate, Roi-controlled PR. The pipeline never opens or auto-merges a PR into a production branch.
 - PR body should reference the Jira issue key and summarize what changed and why.
 - **Never post a GitHub compare link as a substitute for a PR.** If `gh pr create` fails, verify `$GH_TOKEN` is set (`echo $GH_TOKEN`) and retry. Only post to Jira once a real PR URL exists.
 - Before creating the PR, confirm you are authenticated as the agent: `gh api user --jq .login` must return `ClaudeCodeRoiAgent`. If it returns another user, stop and fix the auth before proceeding.
@@ -454,6 +459,17 @@ git checkout {default_branch} && git pull
    mkdir -p ~/dev-context/archive
    mv "$TASK_CONTEXT_DIRECTORY" ~/dev-context/archive/
    ```
+
+---
+
+### F. Auto-merge of integration-branch PRs (handled by `poll-github.sh` — informational)
+
+You do **not** merge integration-branch PRs by hand. For any repo with `auto_merge_when_green: true` in `.jira-process.json` (e.g. `knesset-front` → `dev`), the `poll-github.sh` cron merges the PR automatically once **all required checks are green** (the `Vercel` deploy status == `success`) and there is **no open `CHANGES_REQUESTED` review**. Merged branches are auto-deleted.
+
+What this means for you:
+- After opening a `dev`-targeted PR, just leave it — do not block waiting for the build. The poller merges it within a few minutes of the build going green. The merge will later surface as a `github_pr_merged` task → step E.
+- If a human leaves comments, address them (PR Review → C) and push; once green and not blocked, the poller merges.
+- **Never** open or merge a PR into a production/default branch (e.g. `master`) on the pipeline's own initiative. `dev` → `master` promotion is Roi's call.
 
 ---
 

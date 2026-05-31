@@ -150,6 +150,52 @@ poll_repo() {
 
     done <<< "$PR_NUMBERS"
 
+    # --- Auto-merge integration-branch PRs when green ---
+    # For repos flagged auto_merge_when_green, merge open PRs that target the repo's
+    # base_branch (e.g. dev) once required checks are green and nothing is blocking.
+    # Safe by design: these PRs target an integration branch that never deploys to
+    # production, so the pipeline owns the merge. Promotion dev->master is never touched here.
+    local AUTO_MERGE BASE_BRANCH
+    AUTO_MERGE=$(jq -r --arg r "$REPO" '.repos[] | select(.github==$r) | .auto_merge_when_green // false' "$CONFIG")
+    BASE_BRANCH=$(jq -r --arg r "$REPO" '.repos[] | select(.github==$r) | .base_branch // empty' "$CONFIG")
+    if [ "$AUTO_MERGE" = "true" ] && [ -n "$BASE_BRANCH" ]; then
+        while IFS= read -r PR_NUM; do
+            [ -z "$PR_NUM" ] && continue
+            local PR_BASE HEAD_SHA
+            PR_BASE=$(echo "$OPEN_PRS" | jq -r --argjson n "$PR_NUM" '.[] | select(.number==$n) | .base.ref')
+            [ "$PR_BASE" = "$BASE_BRANCH" ] || continue
+            HEAD_SHA=$(echo "$OPEN_PRS" | jq -r --argjson n "$PR_NUM" '.[] | select(.number==$n) | .head.sha')
+
+            # Combined commit status (Vercel posts a commit status). Require at least one
+            # status present AND overall state == success — so a not-yet-built PR (no statuses)
+            # does NOT count as green.
+            local STATUS_JSON STATE NSTAT
+            STATUS_JSON=$(gh api "repos/$REPO/commits/$HEAD_SHA/status" 2>/dev/null)
+            STATE=$(echo "$STATUS_JSON" | jq -r '.state')
+            NSTAT=$(echo "$STATUS_JSON" | jq -r '.total_count')
+
+            # Any open CHANGES_REQUESTED review blocks the merge.
+            local CR
+            CR=$(gh api "repos/$REPO/pulls/$PR_NUM/reviews?per_page=50" 2>/dev/null \
+                | jq -r '[.[] | select(.state=="CHANGES_REQUESTED")] | length')
+
+            # Mergeability (skip conflicts).
+            local MERGEABLE
+            MERGEABLE=$(gh api "repos/$REPO/pulls/$PR_NUM" 2>/dev/null | jq -r '.mergeable_state')
+
+            if [ "$STATE" = "success" ] && [ "${NSTAT:-0}" -ge 1 ] && [ "${CR:-0}" = "0" ] && [ "$MERGEABLE" != "dirty" ]; then
+                if gh pr merge "$PR_NUM" --repo "$REPO" --squash --delete-branch >/dev/null 2>&1; then
+                    log "AUTO-MERGED $REPO PR #$PR_NUM into $BASE_BRANCH (status=success, no changes-requested)"
+                    ADDED=$((ADDED + 1))
+                else
+                    log "auto-merge FAILED for $REPO PR #$PR_NUM (state=$STATE n=$NSTAT mergeable=$MERGEABLE)"
+                fi
+            else
+                log "auto-merge skip $REPO PR #$PR_NUM: state=$STATE n=$NSTAT changes_requested=$CR mergeable=$MERGEABLE"
+            fi
+        done <<< "$PR_NUMBERS"
+    fi
+
     # Recently merged PRs (last hour)
     local MERGED_PRS
     MERGED_PRS=$(gh api "repos/$REPO/pulls?state=closed&per_page=10" 2>/dev/null | \
