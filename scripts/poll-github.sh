@@ -199,8 +199,15 @@ poll_repo() {
             MERGEABLE=$(gh api "repos/$REPO/pulls/$PR_NUM" 2>/dev/null | jq -r '.mergeable_state')
 
             if [ "$STATE" = "success" ] && [ "${NSTAT:-0}" -ge 1 ] && [ "${APPROVED_LABEL:-0}" -ge 1 ] && [ "${DANGER:-0}" = "0" ] && [ "${CR:-0}" = "0" ] && [ "$MERGEABLE" != "dirty" ]; then
-                if gh pr merge "$PR_NUM" --repo "$REPO" --squash --delete-branch >/dev/null 2>&1; then
-                    log "AUTO-MERGED $REPO PR #$PR_NUM into $BASE_BRANCH (status=success, reviewed-ok, no danger/changes-requested)"
+                # Rebase-merge (NOT squash): a squash commit is authored by the
+                # merging account (the ClaudeCodeRoiAgent bot, whose email
+                # roikedem+claudecode@gmail.com is not on the Vercel/GitHub owner
+                # account), which Vercel Hobby blocks ("commit author could not be
+                # matched"). Rebase preserves each commit's real author — the
+                # Solver authors as roikedem@gmail.com — so the commit landing on
+                # dev has an author Vercel accepts and the preview deploys.
+                if gh pr merge "$PR_NUM" --repo "$REPO" --rebase --delete-branch >/dev/null 2>&1; then
+                    log "AUTO-MERGED $REPO PR #$PR_NUM into $BASE_BRANCH (rebase; status=success, reviewed-ok, no danger/changes-requested)"
                     ADDED=$((ADDED + 1))
                 else
                     log "auto-merge FAILED for $REPO PR #$PR_NUM (state=$STATE n=$NSTAT reviewed_ok=$APPROVED_LABEL mergeable=$MERGEABLE)"
