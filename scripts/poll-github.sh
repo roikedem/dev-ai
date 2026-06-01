@@ -174,24 +174,39 @@ poll_repo() {
             STATE=$(echo "$STATUS_JSON" | jq -r '.state')
             NSTAT=$(echo "$STATUS_JSON" | jq -r '.total_count')
 
-            # Any open CHANGES_REQUESTED review blocks the merge.
+            # Review gates merge: require the review stage's approval label AND no
+            # open CHANGES_REQUESTED review AND no `danger` label. A fresh PR has
+            # no approval label, so it does NOT merge before review runs (this was
+            # the bug: a just-opened PR merged because "no changes-requested" was
+            # mistaken for approval). The label — not a GitHub APPROVED review — is
+            # the signal because the pipeline authors its own PRs and GitHub
+            # forbids approving your own PR. The review stage adds `reviewed-ok`
+            # only after /code-review comes back clean (see PROCESS-TASK.md).
+            local LABELS APPROVED_LABEL DANGER
+            LABELS=$(echo "$OPEN_PRS" | jq -r --argjson n "$PR_NUM" '.[] | select(.number==$n) | .labels[].name')
+            APPROVED_LABEL=$(echo "$LABELS" | grep -cx "reviewed-ok")
+            DANGER=$(echo "$LABELS"        | grep -cx "danger")
+
+            # Any open CHANGES_REQUESTED review (latest per reviewer) still blocks.
             local CR
-            CR=$(gh api "repos/$REPO/pulls/$PR_NUM/reviews?per_page=50" 2>/dev/null \
-                | jq -r '[.[] | select(.state=="CHANGES_REQUESTED")] | length')
+            CR=$(gh api "repos/$REPO/pulls/$PR_NUM/reviews?per_page=100" 2>/dev/null \
+                | jq -r '[ .[] | select(.state=="APPROVED" or .state=="CHANGES_REQUESTED" or .state=="DISMISSED") ]
+                         | group_by(.user.login) | map(max_by(.submitted_at) | .state)
+                         | [ .[] | select(.=="CHANGES_REQUESTED") ] | length')
 
             # Mergeability (skip conflicts).
             local MERGEABLE
             MERGEABLE=$(gh api "repos/$REPO/pulls/$PR_NUM" 2>/dev/null | jq -r '.mergeable_state')
 
-            if [ "$STATE" = "success" ] && [ "${NSTAT:-0}" -ge 1 ] && [ "${CR:-0}" = "0" ] && [ "$MERGEABLE" != "dirty" ]; then
+            if [ "$STATE" = "success" ] && [ "${NSTAT:-0}" -ge 1 ] && [ "${APPROVED_LABEL:-0}" -ge 1 ] && [ "${DANGER:-0}" = "0" ] && [ "${CR:-0}" = "0" ] && [ "$MERGEABLE" != "dirty" ]; then
                 if gh pr merge "$PR_NUM" --repo "$REPO" --squash --delete-branch >/dev/null 2>&1; then
-                    log "AUTO-MERGED $REPO PR #$PR_NUM into $BASE_BRANCH (status=success, no changes-requested)"
+                    log "AUTO-MERGED $REPO PR #$PR_NUM into $BASE_BRANCH (status=success, reviewed-ok, no danger/changes-requested)"
                     ADDED=$((ADDED + 1))
                 else
-                    log "auto-merge FAILED for $REPO PR #$PR_NUM (state=$STATE n=$NSTAT mergeable=$MERGEABLE)"
+                    log "auto-merge FAILED for $REPO PR #$PR_NUM (state=$STATE n=$NSTAT reviewed_ok=$APPROVED_LABEL mergeable=$MERGEABLE)"
                 fi
             else
-                log "auto-merge skip $REPO PR #$PR_NUM: state=$STATE n=$NSTAT changes_requested=$CR mergeable=$MERGEABLE"
+                log "auto-merge skip $REPO PR #$PR_NUM: state=$STATE n=$NSTAT reviewed_ok=$APPROVED_LABEL danger=$DANGER changes_requested=$CR mergeable=$MERGEABLE"
             fi
         done <<< "$PR_NUMBERS"
     fi

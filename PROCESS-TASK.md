@@ -261,7 +261,7 @@ gh pr create --base <base_branch> --title "$TASK_KEY: brief description" --body 
 ```
 
 - **Who merges depends on the repo's base branch:**
-  - **Integration branch with `auto_merge_when_green: true`** (e.g. `knesset-front` → `dev`): the pipeline owns the merge. The PR targets `dev`, which never deploys to production, so merging it is safe. Merge it once **all required checks are green** (the `Vercel` deploy status == `success`) and there are **no unresolved review comments** — see PR Review → step F. Do not wait/block in this session; the Vercel build takes a few minutes, so the merge happens in a later poll/review cycle.
+  - **Integration branch with `auto_merge_when_green: true`** (e.g. `knesset-front` → `dev`): the pipeline owns the merge, **but only after review**. The PR targets `dev`, which never deploys to production, so merging it is safe. After opening the PR, run the review-and-approve step (PR Review → step F): the poller merges it once **Vercel is green**, the **`reviewed-ok`** label is present, and nothing is blocking. Do not wait/block in this session; the merge happens in a later poll cycle.
   - **Production/default branch** (e.g. `knesset-data` → `master`): do **not** merge. Roi reviews and merges these himself — they deploy to production.
   - **Promotion `dev` → `master`** is always a separate, Roi-controlled PR. The pipeline never opens or auto-merges a PR into a production branch.
 - PR body should reference the Jira issue key and summarize what changed and why.
@@ -462,14 +462,40 @@ git checkout {default_branch} && git pull
 
 ---
 
-### F. Auto-merge of integration-branch PRs (handled by `poll-github.sh` — informational)
+### F. Review gate → approve label → auto-merge of integration-branch PRs
 
-You do **not** merge integration-branch PRs by hand. For any repo with `auto_merge_when_green: true` in `.jira-process.json` (e.g. `knesset-front` → `dev`), the `poll-github.sh` cron merges the PR automatically once **all required checks are green** (the `Vercel` deploy status == `success`) and there is **no open `CHANGES_REQUESTED` review**. Merged branches are auto-deleted.
+Auto-merge into a safe integration branch is **gated on review**: the `poll-github.sh` cron merges a PR into the repo's `base_branch` only when ALL hold — **Vercel** status == `success`, the **`reviewed-ok`** label is present, there is **no `danger` label**, and **no open `CHANGES_REQUESTED` review**. A freshly-opened PR has no `reviewed-ok` label, so it will **not** merge until the review below runs. You never merge these by hand.
+
+**Review-and-approve step (run this for every PR you opened or pushed to):**
+
+1. Determine whether this repo is auto-merge eligible:
+   ```bash
+   gh pr view "$TASK_PR_NUMBER" --repo {repo} --json baseRefName -q .baseRefName   # the PR's base
+   jq -r --arg r "{repo}" '.repos[] | select(.github==$r) | "\(.auto_merge_when_green // false) \(.base_branch)"' "$TASK_CONTEXT... .jira-process.json"
+   ```
+   Only proceed if `auto_merge_when_green` is `true` **and** the PR's base equals that repo's `base_branch` (the safe branch, e.g. `dev`). For production/default-branch PRs (e.g. `knesset-data` → `master`) **do nothing here** — Roi reviews and merges those himself.
+
+2. Run a fresh-eyes review of the PR diff — `/code-review` (correctness + security) plus the repo's `test_commands` (build + lint). You are an auditor, not the author: try to find problems.
+
+3. **Decide and signal with a label** (the pipeline authors its own PRs, so a GitHub "Approve" review is not possible — GitHub forbids approving your own PR; the label is the approval signal):
+   - **Clean** (no findings, checks green):
+     ```bash
+     gh pr edit "$TASK_PR_NUMBER" --repo {repo} --add-label "reviewed-ok"
+     ```
+     The poller merges it on the next cycle once Vercel is green.
+   - **Findings found:** do **not** add the label. Either fix them yourself (PR Review → C, then re-review) or, for a risky/uncertain change, raise the block:
+     ```bash
+     gh pr edit "$TASK_PR_NUMBER" --repo {repo} --add-label "danger"
+     ```
+     and escalate to Roi. `danger` blocks auto-merge even if `reviewed-ok` is also present.
+   - If you later push a fix to a PR that addresses your own findings, re-review before re-adding `reviewed-ok`.
 
 What this means for you:
-- After opening a `dev`-targeted PR, just leave it — do not block waiting for the build. The poller merges it within a few minutes of the build going green. The merge will later surface as a `github_pr_merged` task → step E.
-- If a human leaves comments, address them (PR Review → C) and push; once green and not blocked, the poller merges.
+- After opening a `dev`-targeted PR, run the review-and-approve step. Do not block waiting for the Vercel build — once you've added `reviewed-ok`, the poller merges within a few minutes of the build going green. The merge later surfaces as a `github_pr_merged` task → step E.
+- If a human leaves comments, address them (PR Review → C) and push; re-review and re-apply `reviewed-ok` once clean.
 - **Never** open or merge a PR into a production/default branch (e.g. `master`) on the pipeline's own initiative. `dev` → `master` promotion is Roi's call.
+
+> One-time setup per auto-merge repo: the `reviewed-ok` and `danger` labels must exist. `gh label create reviewed-ok --repo {repo} --color 0E8A16 --description "Pipeline review passed — eligible for auto-merge" 2>/dev/null` (and `danger --color B60205`). `gh pr edit --add-label` also creates a missing label on some gh versions, but create them explicitly to be safe.
 
 ---
 
