@@ -59,6 +59,18 @@ if [ "$QUEUE_COUNT" -eq 0 ]; then
     exit 0
 fi
 
+# Pre-flight identity guard. The session can pass PROCESS-TASK.md's auth gate
+# without doing the work (it just declines and exits 0), which would mark the
+# task done and burn its dedup key forever — a silent drop. So refuse to pop a
+# task at all when the gh token resolves to the wrong account: log loudly and
+# leave the queue untouched so the task is retried once the token is fixed.
+EXPECTED_GH_USER=$(jq -r '.agent_gh_login // "ClaudeCodeRoiAgent"' "$REPO_ROOT/.jira-process.json" 2>/dev/null)
+ACTUAL_GH_USER=$(GH_TOKEN="$GH_TOKEN" gh api user --jq .login 2>/dev/null || echo "unknown")
+if [ "$ACTUAL_GH_USER" != "$EXPECTED_GH_USER" ]; then
+    log "ABORT — gh token resolves to '$ACTUAL_GH_USER', expected '$EXPECTED_GH_USER'. Not popping any task (queue left intact). Fix ~/.config/claude-agent-gh-token."
+    exit 0
+fi
+
 # Pop the next task and export its fields as env vars for Claude
 TASK=$("$QUEUE_SH" pop "$REPO_ROOT")
 export TASK_JSON="$TASK"
