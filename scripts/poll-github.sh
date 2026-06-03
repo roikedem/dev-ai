@@ -23,6 +23,13 @@ export GH_TOKEN=$(cat "$AGENT_TOKEN_FILE")
 
 AGENT_DISPLAY="ClaudeCodeRoiAgent"
 
+# Jira creds (optional) — used to read the "auto-merge" label on a PR's issue.
+# If absent, the per-issue auto-merge path is simply skipped.
+JIRA_API_TOKEN_FILE="$HOME/.config/atlassian-api-token"
+JIRA_EMAIL="roikedem+claudecode@gmail.com"
+JIRA_API_TOKEN=""
+[ -f "$JIRA_API_TOKEN_FILE" ] && JIRA_API_TOKEN=$(tr -d '\r\n' < "$JIRA_API_TOKEN_FILE")
+
 # Build list of repos to poll from the repos array
 mapfile -t REPOS < <(jq -r '.repos[].github' "$CONFIG")
 
@@ -150,38 +157,67 @@ poll_repo() {
 
     done <<< "$PR_NUMBERS"
 
-    # --- Auto-merge integration-branch PRs when green ---
-    # For repos flagged auto_merge_when_green, merge open PRs that target the repo's
-    # base_branch (e.g. dev) once required checks are green and nothing is blocking.
-    # Safe by design: these PRs target an integration branch that never deploys to
-    # production, so the pipeline owns the merge. Promotion dev->master is never touched here.
-    local AUTO_MERGE BASE_BRANCH
-    AUTO_MERGE=$(jq -r --arg r "$REPO" '.repos[] | select(.github==$r) | .auto_merge_when_green // false' "$CONFIG")
+    # --- Auto-merge integration-branch PRs ---
+    # A PR into the repo's base_branch (e.g. dev) is auto-merged when it's
+    # review-approved and unblocked. Two ways a PR becomes auto-merge-eligible:
+    #   (a) repo-level: .repos[].auto_merge_when_green == true  (CI-gated — the
+    #       'Vercel' commit status must be green; used by deploying repos like
+    #       knesset-front).
+    #   (b) per-issue: the linked Jira issue carries the "auto-merge" label
+    #       (case-insensitive). This works even in repos that normally don't
+    #       auto-merge (e.g. the Drupal knesset-data repo, which has no CI) — so
+    #       CI-green is NOT required on this path, only review approval.
+    # Either way the merge target must be the repo's base_branch (always dev for
+    # these), and review still gates it. Promotion dev->master is never touched.
+    local REPO_AUTO_MERGE BASE_BRANCH
+    REPO_AUTO_MERGE=$(jq -r --arg r "$REPO" '.repos[] | select(.github==$r) | .auto_merge_when_green // false' "$CONFIG")
     BASE_BRANCH=$(jq -r --arg r "$REPO" '.repos[] | select(.github==$r) | .base_branch // empty' "$CONFIG")
-    if [ "$AUTO_MERGE" = "true" ] && [ -n "$BASE_BRANCH" ]; then
+    if [ -n "$BASE_BRANCH" ]; then
         while IFS= read -r PR_NUM; do
             [ -z "$PR_NUM" ] && continue
-            local PR_BASE HEAD_SHA
+            local PR_BASE HEAD_SHA PR_BRANCH2
             PR_BASE=$(echo "$OPEN_PRS" | jq -r --argjson n "$PR_NUM" '.[] | select(.number==$n) | .base.ref')
             [ "$PR_BASE" = "$BASE_BRANCH" ] || continue
             HEAD_SHA=$(echo "$OPEN_PRS" | jq -r --argjson n "$PR_NUM" '.[] | select(.number==$n) | .head.sha')
+            PR_BRANCH2=$(echo "$OPEN_PRS" | jq -r --argjson n "$PR_NUM" '.[] | select(.number==$n) | .head.ref')
 
-            # Combined commit status (Vercel posts a commit status). Require at least one
-            # status present AND overall state == success — so a not-yet-built PR (no statuses)
-            # does NOT count as green.
-            local STATUS_JSON STATE NSTAT
+            # Per-issue "auto-merge" Jira label? Derive the Jira key from the
+            # branch name (e.g. KNS-80-foo -> KNS-80) and check its labels.
+            local ISSUE_AUTO_MERGE JIRA_KEY
+            ISSUE_AUTO_MERGE=false
+            JIRA_KEY=$(echo "$PR_BRANCH2" | grep -oiE '^[a-z]+-[0-9]+' | tr '[:lower:]' '[:upper:]')
+            if [ -n "$JIRA_KEY" ] && [ -f "$JIRA_API_TOKEN_FILE" ]; then
+                local _LBLS
+                _LBLS=$(curl -sf -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -H "Accept: application/json" \
+                    "https://intotodev.atlassian.net/rest/api/3/issue/$JIRA_KEY?fields=labels" 2>/dev/null \
+                    | jq -r '.fields.labels[]? | ascii_downcase')
+                echo "$_LBLS" | grep -qx "auto-merge" && ISSUE_AUTO_MERGE=true
+            fi
+
+            # Skip unless this PR is eligible by repo flag OR issue label.
+            if [ "$REPO_AUTO_MERGE" != "true" ] && [ "$ISSUE_AUTO_MERGE" != "true" ]; then
+                continue
+            fi
+
+            # Combined commit status (Vercel posts one). Require at least one
+            # status present AND overall state == success. Only enforced on the
+            # repo-flag (CI) path; the issue-label path does not require CI.
+            local STATUS_JSON STATE NSTAT CI_OK
             STATUS_JSON=$(gh api "repos/$REPO/commits/$HEAD_SHA/status" 2>/dev/null)
             STATE=$(echo "$STATUS_JSON" | jq -r '.state')
             NSTAT=$(echo "$STATUS_JSON" | jq -r '.total_count')
+            if [ "$REPO_AUTO_MERGE" = "true" ]; then
+                if [ "$STATE" = "success" ] && [ "${NSTAT:-0}" -ge 1 ]; then CI_OK=1; else CI_OK=0; fi
+            else
+                CI_OK=1  # issue-label path: no CI requirement
+            fi
 
             # Review gates merge: require the review stage's approval label AND no
             # open CHANGES_REQUESTED review AND no `danger` label. A fresh PR has
-            # no approval label, so it does NOT merge before review runs (this was
-            # the bug: a just-opened PR merged because "no changes-requested" was
-            # mistaken for approval). The label — not a GitHub APPROVED review — is
-            # the signal because the pipeline authors its own PRs and GitHub
-            # forbids approving your own PR. The review stage adds `reviewed-ok`
-            # only after /code-review comes back clean (see PROCESS-TASK.md).
+            # no approval label, so it does NOT merge before review runs. The label
+            # — not a GitHub APPROVED review — is the signal because the pipeline
+            # authors its own PRs and GitHub forbids approving your own PR. The
+            # review stage adds `reviewed-ok` only after /code-review is clean.
             local LABELS APPROVED_LABEL DANGER
             LABELS=$(echo "$OPEN_PRS" | jq -r --argjson n "$PR_NUM" '.[] | select(.number==$n) | .labels[].name')
             APPROVED_LABEL=$(echo "$LABELS" | grep -cx "reviewed-ok")
@@ -198,7 +234,7 @@ poll_repo() {
             local MERGEABLE
             MERGEABLE=$(gh api "repos/$REPO/pulls/$PR_NUM" 2>/dev/null | jq -r '.mergeable_state')
 
-            if [ "$STATE" = "success" ] && [ "${NSTAT:-0}" -ge 1 ] && [ "${APPROVED_LABEL:-0}" -ge 1 ] && [ "${DANGER:-0}" = "0" ] && [ "${CR:-0}" = "0" ] && [ "$MERGEABLE" != "dirty" ]; then
+            if [ "${CI_OK:-0}" = "1" ] && [ "${APPROVED_LABEL:-0}" -ge 1 ] && [ "${DANGER:-0}" = "0" ] && [ "${CR:-0}" = "0" ] && [ "$MERGEABLE" != "dirty" ]; then
                 # Rebase-merge (NOT squash): a squash commit is authored by the
                 # merging account (the ClaudeCodeRoiAgent bot, whose email
                 # roikedem+claudecode@gmail.com is not on the Vercel/GitHub owner
@@ -206,14 +242,15 @@ poll_repo() {
                 # matched"). Rebase preserves each commit's real author — the
                 # Solver authors as roikedem@gmail.com — so the commit landing on
                 # dev has an author Vercel accepts and the preview deploys.
+                local TRIGGER; [ "$ISSUE_AUTO_MERGE" = "true" ] && TRIGGER="jira:auto-merge" || TRIGGER="repo:auto_merge_when_green"
                 if gh pr merge "$PR_NUM" --repo "$REPO" --rebase --delete-branch >/dev/null 2>&1; then
-                    log "AUTO-MERGED $REPO PR #$PR_NUM into $BASE_BRANCH (rebase; status=success, reviewed-ok, no danger/changes-requested)"
+                    log "AUTO-MERGED $REPO PR #$PR_NUM into $BASE_BRANCH (rebase; via $TRIGGER; ci_ok=$CI_OK reviewed-ok, no danger/changes-requested)"
                     ADDED=$((ADDED + 1))
                 else
-                    log "auto-merge FAILED for $REPO PR #$PR_NUM (state=$STATE n=$NSTAT reviewed_ok=$APPROVED_LABEL mergeable=$MERGEABLE)"
+                    log "auto-merge FAILED for $REPO PR #$PR_NUM (via $TRIGGER; state=$STATE n=$NSTAT reviewed_ok=$APPROVED_LABEL mergeable=$MERGEABLE)"
                 fi
             else
-                log "auto-merge skip $REPO PR #$PR_NUM: state=$STATE n=$NSTAT reviewed_ok=$APPROVED_LABEL danger=$DANGER changes_requested=$CR mergeable=$MERGEABLE"
+                log "auto-merge skip $REPO PR #$PR_NUM: ci_ok=$CI_OK state=$STATE n=$NSTAT reviewed_ok=$APPROVED_LABEL danger=$DANGER changes_requested=$CR mergeable=$MERGEABLE issue_label=$ISSUE_AUTO_MERGE"
             fi
         done <<< "$PR_NUMBERS"
     fi

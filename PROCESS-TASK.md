@@ -464,16 +464,19 @@ git checkout {default_branch} && git pull
 
 ### F. Review gate → approve label → auto-merge of integration-branch PRs
 
-Auto-merge into a safe integration branch is **gated on review**: the `poll-github.sh` cron merges a PR into the repo's `base_branch` only when ALL hold — **Vercel** status == `success`, the **`reviewed-ok`** label is present, there is **no `danger` label**, and **no open `CHANGES_REQUESTED` review**. A freshly-opened PR has no `reviewed-ok` label, so it will **not** merge until the review below runs. You never merge these by hand.
+Auto-merge into a safe integration branch is **gated on review**: the `poll-github.sh` cron merges a PR into the repo's `base_branch` only when ALL hold — CI is green **if the repo is CI-gated** (Vercel status == `success`), the **`reviewed-ok`** label is present, there is **no `danger` label**, and **no open `CHANGES_REQUESTED` review**. A freshly-opened PR has no `reviewed-ok` label, so it will **not** merge until the review below runs. You never merge these by hand.
+
+A PR is auto-merge-eligible two ways: **(a)** the repo has `auto_merge_when_green: true` (CI-gated — e.g. knesset-front), or **(b)** the linked Jira issue carries the **`auto-merge`** label (works even in repos with no CI, e.g. the Drupal knesset-data repo; CI-green not required, review still is). Both require the PR target the repo's `base_branch` (always `dev`).
 
 **Review-and-approve step (run this for every PR you opened or pushed to):**
 
-1. Determine whether this repo is auto-merge eligible:
+1. Determine whether this PR is auto-merge eligible:
    ```bash
    gh pr view "$TASK_PR_NUMBER" --repo {repo} --json baseRefName -q .baseRefName   # the PR's base
-   jq -r --arg r "{repo}" '.repos[] | select(.github==$r) | "\(.auto_merge_when_green // false) \(.base_branch)"' "$TASK_CONTEXT... .jira-process.json"
+   jq -r --arg r "{repo}" '.repos[] | select(.github==$r) | "\(.auto_merge_when_green // false) \(.base_branch)"' {project_dir}/.jira-process.json
+   # plus: does the Jira issue have the "auto-merge" label?
    ```
-   Only proceed if `auto_merge_when_green` is `true` **and** the PR's base equals that repo's `base_branch` (the safe branch, e.g. `dev`). For production/default-branch PRs (e.g. `knesset-data` → `master`) **do nothing here** — Roi reviews and merges those himself.
+   Proceed if the PR's base equals the repo's `base_branch` (the safe branch, e.g. `dev`) **and** either `auto_merge_when_green` is `true` **or** the Jira issue `$TASK_KEY` has the `auto-merge` label. Otherwise (e.g. a plain `knesset-data` → `dev` PR with no `auto-merge` label, or any PR into `master`) **do nothing here** — Roi reviews and merges manually.
 
 2. Run a fresh-eyes review of the PR diff — `/code-review` (correctness + security) plus the repo's `test_commands` (build + lint). You are an auditor, not the author: try to find problems.
 
