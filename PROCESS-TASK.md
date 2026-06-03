@@ -267,7 +267,7 @@ gh pr create --base <base_branch> --title "$TASK_KEY: brief description" --body 
 - PR body should reference the Jira issue key and summarize what changed and why.
 - **Never post a GitHub compare link as a substitute for a PR.** If `gh pr create` fails, verify `$GH_TOKEN` is set (`echo $GH_TOKEN`) and retry. Only post to Jira once a real PR URL exists.
 - Before creating the PR, confirm you are authenticated as the agent: `gh api user --jq .login` must return `ClaudeCodeRoiAgent`. If it returns another user, stop and fix the auth before proceeding.
-- Open one PR per repo that has commits. If a repo contains another as a submodule, also update the submodule pointer and open a PR for that too.
+- Open one PR per repo that has commits. Repos sharing a folder tree (e.g. `knesset-front` lives in `knesset-data/front/`) are **independent git repos, not submodules** — commit and PR each in its own repo against its own `base_branch`; never add/update a submodule pointer.
 
 **Link the PR to the Jira issue** so it appears under the Development panel:
 
