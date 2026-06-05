@@ -429,11 +429,13 @@ git checkout {default_branch} && git pull
 
 ---
 
-### E. Merged PR → Move Jira to Done
+### E. Merged PR → Move Jira to Review (await Roi)
 
-1. **Transition Jira to Done:**
+The pipeline never sets a Jira issue to "Done"/"Completed". When work is finished (PR merged), leave the issue in **"Review"** for Roi's decision — he is the only one who moves an issue to Completed.
 
-   **Tool:** `mcp__atlassian__getTransitionsForJiraIssue` to find the "Done" transition ID, then `mcp__atlassian__transitionJiraIssue`.
+1. **Transition Jira to "Review"** (NOT Done/Completed):
+
+   **Tool:** `mcp__atlassian__getTransitionsForJiraIssue` to find the "Review" transition ID, then `mcp__atlassian__transitionJiraIssue`. If the issue is already in "Review", leave it.
 
 2. **Post before/after screenshots as a Jira comment:**
 
@@ -508,7 +510,7 @@ What this means for you:
 
 | # | Check | How to verify |
 |---|---|---|
-| 1 | Jira status is **"Review"** (or "Done" for merged PRs) | `mcp__atlassian__getJiraIssue` → `fields.status.name` |
+| 1 | Jira status is **"Review"** (always — never set Done/Completed; Roi decides that) | `mcp__atlassian__getJiraIssue` → `fields.status.name` |
 | 2 | PR exists and is open | `gh pr view $TASK_PR_NUMBER --repo {repo}` |
 | 3 | PR is linked in Jira Development panel | `mcp__atlassian__getJiraIssueRemoteIssueLinks` |
 | 4 | Jira comment posted with PR link | `mcp__atlassian__getJiraIssue` → `fields.comment` |
