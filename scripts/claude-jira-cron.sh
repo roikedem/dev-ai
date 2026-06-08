@@ -101,7 +101,7 @@ WATCH_DIR="$HOME/dev-context"
 MARK=$(mktemp /tmp/claude-mark-XXXXXX)
 IDLE=0
 
-"$CLAUDE" --model opus --dangerously-skip-permissions --output-format json \
+"$CLAUDE" --model sonnet --dangerously-skip-permissions --output-format json \
     -p "Follow the Entry Point section in $DEV_AI_ROOT/PROCESS-TASK.md." \
     > "$CLAUDE_OUTFILE" 2>&1 &
 CLAUDE_PID=$!
@@ -171,7 +171,7 @@ if [ -n "$USAGE_JSON" ]; then
             (agent_type, project_dir, task_key, task_type, model,
              input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
           VALUES
-            ('local','$_DIR','$_KEY','$_TYP','claude-opus-4-8',
+            ('local','$_DIR','$_KEY','$_TYP','claude-sonnet-4-6',
              $_IN, $_OUT, $_CR, $_CW, $_COST);" 2>/dev/null || true
     fi
 fi
