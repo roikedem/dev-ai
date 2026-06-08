@@ -102,6 +102,7 @@ MARK=$(mktemp /tmp/claude-mark-XXXXXX)
 IDLE=0
 
 "$CLAUDE" --model sonnet --dangerously-skip-permissions --output-format json \
+    --mcp-config "$DEV_AI_ROOT/config/playwright-mcp.json" \
     -p "Follow the Entry Point section in $DEV_AI_ROOT/PROCESS-TASK.md." \
     > "$CLAUDE_OUTFILE" 2>&1 &
 CLAUDE_PID=$!

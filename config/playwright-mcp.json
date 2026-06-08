@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest",
+        "--headless",
+        "--executable-path", "/usr/bin/google-chrome-stable",
+        "--isolated",
+        "--allowed-hosts", "*"
+      ]
+    }
+  }
+}

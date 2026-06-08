@@ -130,14 +130,26 @@ git checkout -b "$TASK_KEY-short-description" "origin/<base_branch>"
 - Create a branch in every repo that needs changes (read `repos` from `.jira-process.json`).
 - Use the same branch name across all repos for traceability.
 
-**Take a "before" screenshot — required before touching any code:**
+### Local environment + browser (REQUIRED for any UI/behaviour task)
 
-- Identify the URL(s) in the local site that show the problem.
-- For each affected URL, take a screenshot of the relevant section using the helper script:
+Tests run against the **real local app**, exercised through a **real browser** that YOU (this session) drive via the **`playwright` MCP tools** (navigate, click, type, snapshot/read the DOM, screenshot). The browser runs headless on this host. Do NOT fake tests, and do NOT screenshot the login page as "the feature."
 
-```bash
-node ~/projects/dev-ai/scripts/screenshot.js "<url>" "<css-selector>" "$TASK_CONTEXT_DIRECTORY/before.png"
-```
+**1. Start the environment** (only what the task touches):
+- **Drupal backend:** `cd {project_dir} && ddev start` (ddev config is in the repo). Backend URL = `local_urls.backend`.
+- **Next.js front:** `cd {project_dir}/front && npm install && (npm run dev &)` — serves `local_urls.frontend` (http://localhost:3000). Wait until it responds before testing.
+
+**2. Ensure test users exist (you create them — like any real user, LOCAL ONLY).** Most features need login, and different features need different roles.
+- **Drupal admin** (to control/inspect data): `ddev drush user:create tester_admin --mail="tester_admin@roikedem.com" --password="<pick>"` then `ddev drush user:role:add administrator tester_admin`.
+- **Feature test users** (as many as the feature needs — e.g. an account manager + a plain member): create via the app's normal flow or `ddev drush user:create <name> --mail="<name>@roikedem.com" --password="<pick>"`, then grant the role the feature requires (`drush user:role:add <role> <name>`), and mark the email verified if the app gates on it (set `field_email_verified`/status as a normal user would be). Use **@roikedem.com** addresses.
+- Record the users + passwords you used in `$TASK_CONTEXT_DIRECTORY/test-users.txt` so later sessions reuse them. Reuse existing ones if already present; reset a password with `ddev drush user:password <name> "<new>"`.
+- (Email-driven flows — password-reset links, notifications — are not yet readable by this session; test those paths manually-noted as out of scope unless told otherwise.)
+
+**3. Log in through the browser.** Using the `playwright` MCP: navigate to the login page (`{local_urls.frontend}/login` for the front; `{local_urls.backend}/user/login` for Drupal admin), fill email+password of the appropriate test user, submit, and confirm you're authenticated (you land on the dashboard, not back on /login). Pick the user whose role matches what the feature requires.
+
+**Take a "before" capture — required before touching any code:**
+
+- Identify the URL(s) and the exact on-screen element that shows the problem.
+- Log in (step 3), navigate to the affected screen, and screenshot **the relevant element/section** (not the whole login page) via the playwright MCP screenshot tool, saving to `$TASK_CONTEXT_DIRECTORY/before.png`. Also note in the testplan what the screen currently shows (the actual symptom).
 
 - Create `$TASK_CONTEXT_DIRECTORY/index.html` documenting the context:
 
@@ -210,23 +222,22 @@ When checking this issue in future sessions — only act if there is new activit
 
 ## 5. Test
 
-**Both of the following are required before proceeding to step 6:**
+**The test plan is for the TESTER (you, this session) to execute in the browser — not a checklist handed to Roi.** Write it as concrete steps an agent performs: which user/role to log in as, which URL, what to click/type, and the expected on-screen result for each step.
 
-1. Write the testplan to `$TASK_CONTEXT_DIRECTORY/testplan.txt`.
+1. Write the testplan to `$TASK_CONTEXT_DIRECTORY/testplan.txt` as numbered executable steps, e.g.:
+   `1. Log in as tester_manager@roikedem.com. 2. Open /dashboard/assignments. 3. Click "Add member". 4. Expect: dialog shows email+name+permissions fields. 5. Submit → expect the new member appears in the list.`
 2. Post the testplan as a comment on the Jira issue (`mcp__atlassian__addCommentToJiraIssue`).
 
-Then run tests:
-- Run tests from the testplan.
-- Run all relevant test commands defined in `.jira-process.json` (`test_commands.backend`, `test_commands.frontend`).
-- Exercise the affected path manually and verify in the browser.
-- Update testplan results on the Jira issue comment.
-- Confirm the original symptom described in the Jira issue is resolved.
+Then ACTUALLY run it through the browser (playwright MCP):
+- Start the env + log in as the right-role test user (see "Local environment + browser" above).
+- Execute each testplan step in the real browser: navigate, click, type, then **read the page (DOM snapshot / visible text) and assert the expected result actually happened** — don't assume; verify on screen.
+- Also run the repo's `test_commands` (`.jira-process.json` → `test_commands.backend`/`frontend`, e.g. build + lint) and confirm they pass.
+- Confirm the **original symptom** from the Jira issue is gone, by observing the fixed screen.
+- Record pass/fail per step (with what you saw) in the testplan and update the Jira comment. If any step fails, fix and re-run — do not proceed with a failing testplan.
 
 **Take an "after" screenshot — required before committing:**
 
-```bash
-node ~/projects/dev-ai/scripts/screenshot.js "<url>" "<css-selector>" "$TASK_CONTEXT_DIRECTORY/after.png"
-```
+- Via the playwright MCP, log in, navigate to the **same screen/element** as the before-shot, and screenshot the fixed element to `$TASK_CONTEXT_DIRECTORY/after.png`. It must show the actual tested feature (same framing as before.png), never the login page.
 
 Update `$TASK_CONTEXT_DIRECTORY/index.html` — fill in the After section:
 
