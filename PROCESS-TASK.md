@@ -130,50 +130,11 @@ git checkout -b "$TASK_KEY-short-description" "origin/<base_branch>"
 - Create a branch in every repo that needs changes (read `repos` from `.jira-process.json`).
 - Use the same branch name across all repos for traceability.
 
-### Local environment + browser (REQUIRED for any UI/behaviour task)
+### Local environment + before-capture (REQUIRED for any UI/behaviour task)
 
-Tests run against the **real local app**, exercised through a **real browser** that YOU (this session) drive via the **`playwright` MCP tools** (navigate, click, type, snapshot/read the DOM, screenshot). The browser runs headless on this host. Do NOT fake tests, and do NOT screenshot the login page as "the feature."
+Testing runs against the **real local app** through a **real browser** (playwright MCP). The full procedure — starting the env, creating test users, logging in, the before/after captures, the test plan, and the HTML report — lives in **`TESTING.md` (canonical)**.
 
-**1. Start the environment** (only what the task touches; this stage is project-agnostic — use whatever `.jira-process.json` declares for THIS project):
-- **Drupal backend** (if the project has a ddev config / `local_urls.backend`): `cd {project_dir} && ddev start`. Backend URL = `local_urls.backend`.
-- **Next.js front** (only if the project has a front and `local_urls.frontend`): `cd {project_dir}/front && npm install && (npm run dev &)` — serves `local_urls.frontend`. Wait until it responds before testing. (Drupal-only projects like pandit have no front — skip this.)
-- If neither URL is declared, there's no live UI to browser-test; fall back to `test_commands` only.
-
-**2. Ensure test users exist (you create them — like any real user, LOCAL ONLY).** Most features need login, and different features need different roles.
-- **Drupal admin** (to control/inspect data): `ddev drush user:create tester_admin --mail="tester_admin@roikedem.com" --password="<pick>"` then `ddev drush user:role:add administrator tester_admin`.
-- **Feature test users** (as many as the feature needs — e.g. an account manager + a plain member): create via the app's normal flow or `ddev drush user:create <name> --mail="<name>@roikedem.com" --password="<pick>"`, then grant the role the feature requires (`drush user:role:add <role> <name>`), and mark the email verified if the app gates on it (set `field_email_verified`/status as a normal user would be). Use **@roikedem.com** addresses.
-- Record the users + passwords you used in `$TASK_CONTEXT_DIRECTORY/test-users.txt` so later sessions reuse them. Reuse existing ones if already present; reset a password with `ddev drush user:password <name> "<new>"`.
-- **Email-driven flows (password reset, email verification, notifications):** give the test user a **`tester*@roikedem.com`** address (e.g. `tester-$TASK_KEY-mgr@roikedem.com`). App mail to any `tester*@roikedem.com` is captured and lands as JSON in `~/projects/team-emails/inbox/tester/` (via SES→Lambda→SQS→poller, usually within ~2 min). To test a reset/verification/notification: trigger it in the app, then read the newest file in `~/projects/team-emails/inbox/tester/` whose `to` matches your test address, extract the link/code from `body_text`, and continue in the browser. (Requires the SES receipt rule + Lambda to be deployed for the domain.)
-
-**3. Log in through the browser.** Using the `playwright` MCP: navigate to the login page (`{local_urls.frontend}/login` for the front; `{local_urls.backend}/user/login` for Drupal admin), fill email+password of the appropriate test user, submit, and confirm you're authenticated (you land on the dashboard, not back on /login). Pick the user whose role matches what the feature requires.
-
-**Take a "before" capture — required before touching any code:**
-
-- Identify the URL(s) and the exact on-screen element that shows the problem.
-- Log in (step 3), navigate to the affected screen, and screenshot **the relevant element/section** (not the whole login page) via the playwright MCP screenshot tool, saving to `$TASK_CONTEXT_DIRECTORY/before.png`. Also note in the testplan what the screen currently shows (the actual symptom).
-
-- Create `$TASK_CONTEXT_DIRECTORY/index.html` documenting the context:
-
-```html
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>$TASK_KEY test report</title></head>
-<body>
-  <h1>$TASK_KEY: <issue title></h1>
-  <h2>Before</h2>
-  <p><strong>URL:</strong> <a href="<url>"><url></a></p>
-  <p><strong>Taken:</strong> <ISO 8601 timestamp></p>
-  <p><strong>Observed symptom:</strong> <what the screen wrongly shows></p>
-  <img src="before.png" alt="before" style="max-width:100%;border:1px solid #ccc">
-  <h2>During (test steps)</h2>
-  <p><em>(filled in as you run the testplan — one entry per significant step)</em></p>
-  <h2>After</h2>
-  <p><em>(to be filled in after the fix)</em></p>
-</body>
-</html>
-```
-
-This `index.html` is the **test report**: as you execute the testplan, capture a screenshot at each *significant* step (not only before/after) — e.g. the dialog you opened, the state after a click, the value that changed, any error — save them as `step-1.png`, `step-2.png`, … in `$TASK_CONTEXT_DIRECTORY`, and add a "During" entry per step with the step description, what you expected, what you observed, and the image. The finished report should let a reader follow the whole test visually: before → each meaningful interaction → after.
+Before touching code: follow `TESTING.md` §1–§4 — start the env, log in as the role-appropriate test user, and take the **before-capture** (`before.png` of the actual affected element, not the login page) plus the initial `index.html` test report. Then proceed to solve.
 
 **Create `$TASK_CONTEXT_FILE`:**
 
@@ -228,31 +189,7 @@ When checking this issue in future sessions — only act if there is new activit
 
 ## 5. Test
 
-**The test plan is for the TESTER (you, this session) to execute in the browser — not a checklist handed to Roi.** Write it as concrete steps an agent performs: which user/role to log in as, which URL, what to click/type, and the expected on-screen result for each step.
-
-1. Write the testplan to `$TASK_CONTEXT_DIRECTORY/testplan.txt` as numbered executable steps, e.g.:
-   `1. Log in as tester_manager@roikedem.com. 2. Open /dashboard/assignments. 3. Click "Add member". 4. Expect: dialog shows email+name+permissions fields. 5. Submit → expect the new member appears in the list.`
-2. Post the testplan as a comment on the Jira issue (`mcp__atlassian__addCommentToJiraIssue`).
-
-Then ACTUALLY run it through the browser (playwright MCP):
-- Start the env + log in as the right-role test user (see "Local environment + browser" above).
-- Execute each testplan step in the real browser: navigate, click, type, then **read the page (DOM snapshot / visible text) and assert the expected result actually happened** — don't assume; verify on screen.
-- Also run the repo's `test_commands` (`.jira-process.json` → `test_commands.backend`/`frontend`, e.g. build + lint) and confirm they pass.
-- Confirm the **original symptom** from the Jira issue is gone, by observing the fixed screen.
-- Record pass/fail per step (with what you saw) in the testplan and update the Jira comment. If any step fails, fix and re-run — do not proceed with a failing testplan.
-
-**Take an "after" screenshot — required before committing:**
-
-- Via the playwright MCP, log in, navigate to the **same screen/element** as the before-shot, and screenshot the fixed element to `$TASK_CONTEXT_DIRECTORY/after.png`. It must show the actual tested feature (same framing as before.png), never the login page.
-
-Update `$TASK_CONTEXT_DIRECTORY/index.html` — fill in the After section:
-
-```html
-  <h2>After</h2>
-  <p><strong>URL:</strong> <a href="<url>"><url></a></p>
-  <p><strong>Taken:</strong> <ISO 8601 timestamp></p>
-  <img src="after.png" alt="after">
-```
+**The full testing phase is documented in its own file — follow `TESTING.md` (canonical).** It covers: writing the test plan as executable browser steps (for YOU to run, not a checklist for Roi), running each step via the playwright MCP and asserting on-screen, per-step screenshots, running `test_commands`, the after-capture, and the HTML test report. Do not skip it; if `TESTING.md` and this section ever conflict, `TESTING.md` wins.
 
 ---
 
