@@ -80,25 +80,6 @@ def jira_status(key):
     return d["fields"]["status"]["name"]
 
 
-def jira_transition_to_review(key):
-    d = jira_get(f"issue/{key}/transitions")
-    if not d:
-        return False
-    tid = None
-    for t in d.get("transitions", []):
-        if t["to"]["name"].lower() == "review":
-            tid = t["id"]
-            break
-    if not tid:
-        return False
-    if DRY:
-        return True
-    body = json.dumps({"transition": {"id": tid}})
-    cmd = (f'curl -sf -u "{JIRA_EMAIL}:{JIRA_TOKEN}" -H "Content-Type: application/json" '
-           f"-X POST --data '{body}' \"{JIRA_BASE}/issue/{key}/transitions\"")
-    return sh(cmd).returncode == 0
-
-
 def gh(path):
     r = sh(f'GH_TOKEN={GH_TOKEN} gh api "{path}" 2>/dev/null')
     if r.returncode != 0 or not r.stdout.strip():
@@ -164,18 +145,35 @@ def check_project(proj):
         jlow = jstatus.lower()
         if jlow in ("review", "in review", "completed", "done", "canceled", "closed"):
             continue  # already advanced or closed — fine
+        # A task marked `done` whose Jira never reached Review/Done is STUCK: the
+        # session exited (e.g. hit the turn limit) before finishing its final
+        # steps (merge / transition / post report). The right fix is NOT to patch
+        # Jira ourselves — that would advance Jira ahead of an unmerged PR. Instead
+        # REQUEUE the task so the pipeline re-runs it and finishes it properly
+        # (idempotent: a re-run resumes from $TASK_CONTEXT_FILE, merges if needed,
+        # transitions Jira). The `done` flag was the lie; undo it by re-enqueuing.
         pr = issue_has_pr(repos, key)
-        if pr:
-            # CASE 1: work done (PR exists) but Jira stuck → fix to Review
-            ok = jira_transition_to_review(key)
+        pr_desc = f"PR #{pr[1]} {pr[0]}" if pr else "no PR yet"
+
+        # Don't pile up: skip if a non-done task for this key is already queued/running.
+        live = psql(
+            "SELECT count(*) FROM tasks "
+            f"WHERE project_dir='{pdir}' AND task_key='{key}' AND status <> 'done'"
+        )
+        if live and live[0] and int(live[0][0]) > 0:
+            continue
+
+        if DRY:
             findings.append(("FIX", name,
-                f"{key}: done+PR #{pr[1]} ({pr[0]}) but Jira was '{jstatus}' → "
-                f"{'transitioned to Review' if ok else 'FAILED to transition'}"
-                f"{' [dry-run]' if DRY else ''}"))
+                f"{key}: queue 'done' but Jira still '{jstatus}' ({pr_desc}) → would requeue [dry-run]"))
         else:
-            # CASE 4: done but no PR and Jira not advanced → likely silent drop
-            findings.append(("FLAG", name,
-                f"{key}: queue 'done' but NO PR found and Jira is '{jstatus}' — possible silent drop, may need re-run"))
+            payload = json.dumps({"type": "jira_issue", "key": key})
+            dedup = f"reconcile:{key}:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
+            r = sh(f'''bash "{DEV_AI}/scripts/queue.sh" push "{pdir}" '{payload}' "{dedup}"''')
+            ok = r.returncode == 0
+            findings.append(("FIX", name,
+                f"{key}: queue 'done' but Jira still '{jstatus}' ({pr_desc}) → "
+                f"{'requeued for the pipeline to finish' if ok else 'requeue FAILED'}"))
 
     # ---- 2: open PRs missing reviewed-ok --------------------------------------
     for repo in repos:
