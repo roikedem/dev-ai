@@ -46,7 +46,7 @@ Using the `playwright` MCP: navigate to the login page (`{local_urls.frontend}/l
 
 - Identify the URL(s) and the exact on-screen element that shows the problem.
 - Log in, navigate there, screenshot **the relevant element/section** (not the login page) → `$TASK_CONTEXT_DIRECTORY/before.png`.
-- Create `$TASK_CONTEXT_DIRECTORY/index.html` (the **test report** — see §7) with the Before section filled, including the observed symptom.
+- Start the local log `$TASK_CONTEXT_DIRECTORY/test-log.md` (markdown — see §7) with the Before entry: URL, timestamp, observed symptom, `before.png`.
 
 **Screenshot framing (applies to every screenshot — before, steps, after):** crop **around the tested element with GENEROUS margins** — include the surrounding context (labels, the row/card it's in, nearby headers), not a tight box on the element alone. Tight crops lose information (the KNS-188 shots were too tight and cut off context). Prefer the element plus a healthy padding, or the whole panel/section it lives in. Save every screenshot **into `$TASK_CONTEXT_DIRECTORY`**, never into the project repo.
 
@@ -60,55 +60,33 @@ Post the testplan as a Jira comment (`mcp__atlassian__addCommentToJiraIssue`).
 ## 6. Run the test plan in the real browser
 
 - Execute each step via the playwright MCP: navigate, click, type, then **read the page (DOM snapshot / visible text) and ASSERT the expected result actually happened** — never assume; verify on screen.
-- Capture a screenshot at each **significant** step (dialog opened, state after a click, the changed value, any error) → `step-1.png`, `step-2.png`, … in `$TASK_CONTEXT_DIRECTORY`, and add a step entry to the report (§7).
+- Capture a screenshot at each **significant** step (dialog opened, state after a click, the changed value, any error) → `step-1.png`, `step-2.png`, … in `$TASK_CONTEXT_DIRECTORY`, and add a step entry to `test-log.md` (§7).
 - Run the repo's `test_commands` (`test_commands.backend` / `frontend`, e.g. build + lint) and confirm they pass.
 - Confirm the **original Jira symptom** is gone by observing the fixed screen.
-- Record pass/fail per step (with what you saw, plus a screenshot of the failure) in the report.
-- **On any step failure → go back to the solver, then back to testing.** Do NOT proceed, do NOT open/advance the PR, do NOT mark anything done. Return to PROCESS-TASK.md "§4 Solve the Issue", fix the root cause, then re-run the testplan **from the start** in the browser. Repeat until every step passes. The cycle is solve → test → (fail) → solve → test, and only a fully-green run exits the loop. Keep each failed attempt's screenshots in the report so the history is visible.
+- Record pass/fail per step (with what you saw, plus a screenshot of the failure) in `test-log.md`.
+- **On any step failure → go back to the solver, then back to testing.** Do NOT proceed, do NOT open/advance the PR, do NOT mark anything done. Return to PROCESS-TASK.md "§4 Solve the Issue", fix the root cause, then re-run the testplan **from the start** in the browser. Repeat until every step passes. The cycle is solve → test → (fail) → solve → test, and only a fully-green run exits the loop. Keep each failed attempt's screenshots so the history is visible.
 
-## 7. After-capture + HTML test report
+## 7. After-capture + Jira test report
 
 - Via the playwright MCP, navigate to the **same screen/element** as the before-shot and screenshot the fixed state → `$TASK_CONTEXT_DIRECTORY/after.png` (same framing as before.png; never the login page).
 
 ### Where files go (strict)
-**ALL test artifacts — every `.png` and `index.html` — live ONLY in `$TASK_CONTEXT_DIRECTORY` (`~/dev-context/$TASK_KEY/`).** Never write screenshots into the project repo (`~/projects/knesset-data/...` etc.) — that pollutes the working tree and is wrong. When you take a screenshot with the playwright MCP, give it a path **inside** `$TASK_CONTEXT_DIRECTORY`. If any stray `.png` ends up in the repo, move it into the context dir and remove it from the repo before committing.
+**ALL test artifacts (every `.png`, plus the local log) live ONLY in `$TASK_CONTEXT_DIRECTORY` (`~/dev-context/$TASK_KEY/`).** Never write screenshots into a project repo (`~/projects/knesset-data/...` etc.) — that pollutes the working tree. When you screenshot via the playwright MCP, give it a path **inside** `$TASK_CONTEXT_DIRECTORY`. If a stray `.png` lands in a repo, move it into the context dir before committing.
 
-### The report is a self-contained log
-`$TASK_CONTEXT_DIRECTORY/index.html` is the full record of what you did: **every step you performed, in order, each with a timestamp, a plain description, expected-vs-observed, and its embedded screenshot** — Before → each step (including any failures and re-tests) → After. A reader should be able to follow the entire test visually without you present.
+### Keep a local log as you go
+Maintain a running log in `$TASK_CONTEXT_DIRECTORY/test-log.md` (plain markdown — NOT html): every step in order, each with a timestamp, a one-line description, expected-vs-observed, PASS/FAIL, and the screenshot filename. Include failed attempts and the re-test after the solver fixed them. This is your scratch record; the Jira comment below is the deliverable.
 
-- **Use RELATIVE image paths only** — `src="before.png"`, `src="step-3.png"`. Never absolute paths (`/home/...`) or `file://` — those render as broken links. The HTML and the images sit in the same directory, so the bare filename is the correct `src`.
-- One `<h3>` block per step: `Step N — <HH:MM:SS> — <description>`, then Expected/Observed, then `<img>`.
+### Deliverable: ONE Jira comment with INLINE-EMBEDDED images (required, after testing passes)
+Do NOT attach an html file (Jira can't render it usefully). Instead post a **single Jira comment that embeds the screenshots inline**, so the whole test reads in-issue:
 
-Skeleton:
-```html
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>$TASK_KEY test report</title></head>
-<body>
-  <h1>$TASK_KEY: <issue title></h1>
-  <h2>Before</h2>
-  <p><strong>URL:</strong> <a href="<url>"><url></a> &middot; <strong>Taken:</strong> <HH:MM:SS></p>
-  <p><strong>Observed symptom:</strong> <what the screen wrongly shows></p>
-  <img src="before.png" alt="before" style="max-width:100%;border:1px solid #ccc">
+1. Upload each screenshot as an attachment to the issue (this is what makes inline embedding possible — Jira embeds by filename):
+   `POST /rest/api/3/issue/$TASK_KEY/attachments` via `mcp__atlassian__fetch`, `multipart/form-data`, header `X-Atlassian-Token: no-check` — one call per `.png`.
+2. Post one comment (`mcp__atlassian__addCommentToJiraIssue`) structured as Before → each step → After, with each image embedded inline right after its description. Embed syntax depends on the comment format:
+   - **Wiki markup:** `!before.png!`, `!step-1.png!`, `!after.png!` (use `!name.png|width=600!` to size).
+   - **ADF / markdown:** reference the uploaded media by the same filename so it renders inline, not as a bare link.
+   Each step line: `*Step N (HH:MM:SS):* <description> — expected … / observed … — PASS`, then the image on the next line. End with a short "all steps passed" summary.
 
-  <h2>Test steps</h2>
-  <h3>Step 1 — <HH:MM:SS> — <description of action></h3>
-  <p><strong>Expected:</strong> … &middot; <strong>Observed:</strong> … &middot; <strong>Result:</strong> PASS|FAIL</p>
-  <img src="step-1.png" alt="step 1" style="max-width:100%;border:1px solid #ccc">
-  <!-- repeat per step; include failed attempts + the re-test after the solver fixed it -->
-
-  <h2>After</h2>
-  <p><strong>URL:</strong> <a href="<url>"><url></a> &middot; <strong>Taken:</strong> <HH:MM:SS></p>
-  <img src="after.png" alt="after" style="max-width:100%;border:1px solid #ccc">
-</body>
-</html>
-```
-
-### Upload the report to Jira (required, after testing passes)
-Once the testplan is fully green, attach the report **and its images** to the Jira issue so it's viewable there:
-1. Upload `index.html` and every `.png` it references as attachments:
-   `POST /rest/api/3/issue/$TASK_KEY/attachments` (via `mcp__atlassian__fetch`, `multipart/form-data`, header `X-Atlassian-Token: no-check`), one call per file.
-2. Post a Jira comment that embeds the images inline so they render in-issue, e.g. `!before.png|thumbnail!`, `!step-1.png|thumbnail!`, …, `!after.png|thumbnail!`, with the step descriptions — and link the uploaded `index.html` as the full report.
+The reader should follow the entire test — symptom → interactions → fixed result — scrolling one Jira comment, images shown inline. No html attachment.
 
 Then continue with the PR / Jira-transition steps in PROCESS-TASK.md.
 
