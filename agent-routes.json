@@ -1,0 +1,12 @@
+{
+  "_comment": "Email routing for SES→Lambda. Keys = recipient address (lowercase), values = agent slug (the agent's dir under team/agents/ and the 'agent' field the SQS poller routes on). Edit this file and upload to s3://email-hazerem-fwd/config/agent-routes.json — the lambda reads it at runtime, no redeploy needed. Addresses matching the tester pattern (tester*@roikedem.com) are handled by the lambda separately and need no entry here. Anything not listed is forwarded to Roi's Gmail.",
+  "agents": {
+    "manager@roikedem.com": "team-manager",
+    "architect@roikedem.com": "architect",
+    "leads@roikedem.com": "leads-agent",
+    "security@roikedem.com": "security-officer",
+    "pm@roikedem.com": "project-manager",
+    "mentor@roikedem.com": "mentor",
+    "coach@roikedem.com": "coach"
+  }
+}
