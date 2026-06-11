@@ -91,6 +91,21 @@ https://cli.github.com/packages stable main" \
     sudo apt-get install -y -qq gh
 fi
 
+# ── 4b. Docker + DDEV (needed to run/test Drupal projects, e.g. pandit) ───────
+step "Installing Docker + DDEV"
+if ! command -v docker &>/dev/null; then
+    sudo apt-get install -y -qq docker.io
+    sudo systemctl enable --now docker
+fi
+# let the current user reach the docker daemon without sudo (takes effect on next login)
+if ! groups "$USER" | grep -qw docker; then
+    sudo usermod -aG docker "$USER"
+    echo "NOTE: log out/in (or reboot) for docker group membership to take effect."
+fi
+if ! command -v ddev &>/dev/null; then
+    curl -fsSL https://ddev.com/install.sh | bash
+fi
+
 # ── 5. Credential files ──────────────────────────────────────────────────────
 step "Writing credential files"
 mkdir -p "$HOME/.config"
