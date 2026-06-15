@@ -218,10 +218,33 @@ poll_repo() {
             # — not a GitHub APPROVED review — is the signal because the pipeline
             # authors its own PRs and GitHub forbids approving your own PR. The
             # review stage adds `reviewed-ok` only after /code-review is clean.
-            local LABELS APPROVED_LABEL DANGER
+            local LABELS APPROVED_LABEL DANGER PENDING_SIBLING
             LABELS=$(echo "$OPEN_PRS" | jq -r --argjson n "$PR_NUM" '.[] | select(.number==$n) | .labels[].name')
             APPROVED_LABEL=$(echo "$LABELS" | grep -cx "reviewed-ok")
             DANGER=$(echo "$LABELS"        | grep -cx "danger")
+
+            # Sibling release: the review stage reviewed this front PR clean but
+            # withheld `reviewed-ok` because a paired manual-review PR (same Jira
+            # key, e.g. the Drupal backend) was still OPEN — marking it
+            # `reviewed-pending-sibling` instead. Once that sibling PR is no longer
+            # open (Roi merged it), promote pending→approved automatically so the
+            # front merges without a human re-running the approve step.
+            PENDING_SIBLING=$(echo "$LABELS" | grep -cx "reviewed-pending-sibling")
+            if [ "${APPROVED_LABEL:-0}" -lt 1 ] && [ "${PENDING_SIBLING:-0}" -ge 1 ] && [ -n "$JIRA_KEY" ]; then
+                local SIB_OPEN=0
+                for sib_repo in $(jq -r '.repos[].github' "$CONFIG"); do
+                    [ "$sib_repo" = "$REPO" ] && continue
+                    local n_open
+                    n_open=$(gh api "repos/$sib_repo/pulls?state=open&per_page=50" 2>/dev/null \
+                        | jq --arg k "$JIRA_KEY" '[ .[] | select((.head.ref // "") | ascii_upcase | startswith($k + "-") or . == $k) ] | length' 2>/dev/null)
+                    SIB_OPEN=$(( SIB_OPEN + ${n_open:-0} ))
+                done
+                if [ "$SIB_OPEN" -eq 0 ]; then
+                    gh pr edit "$PR_NUM" --repo "$REPO" --add-label "reviewed-ok" --remove-label "reviewed-pending-sibling" >/dev/null 2>&1
+                    APPROVED_LABEL=1
+                    log "sibling released $REPO PR #$PR_NUM ($JIRA_KEY): no open sibling PR → promoted reviewed-pending-sibling to reviewed-ok"
+                fi
+            fi
 
             # Any open CHANGES_REQUESTED review (latest per reviewer) still blocks.
             local CR
