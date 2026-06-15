@@ -14,12 +14,58 @@ This phase is **project-agnostic** — read what THIS project declares in its
 
 ---
 
+## 0. Hard gates — when you MUST report FAIL/BLOCKED, never PASS
+
+A run is **PASS only if** the test plan's steps that assert the ticket's actual
+behavior ran **green in a real browser**. The following are not "partial passes" —
+they are **FAIL / BLOCKED**, and you must say so plainly (never "conditionally
+correct", never "all *testable* aspects pass"):
+
+1. **The feature was never exercised.** "Build passes", "`php -l` clean", "page
+   didn't crash", "formula is mathematically correct" are necessary but **NOT** a
+   pass. If you did not see the ticket's specific behavior happen on screen, it is
+   not tested → BLOCKED. State exactly what you could not verify.
+2. **Wrong / partial environment.** A change that spans multiple repos (e.g. Drupal
+   backend + Next front) MUST be tested where **every** repo's change for this task
+   is actually live together. Never test a local front against a backend that lacks
+   the backend half of the same ticket (this is the KNS-189 failure). Confirm the
+   backend you point at actually contains this task's commits before testing; if it
+   doesn't, deploy it to the dev/test env first or report BLOCKED — do not test
+   against an env missing half the change and call the result anything but BLOCKED.
+3. **Missing test data is a setup failure, not a pass.** "The test user has no
+   assignments / no account / no matching record, so the page was empty" means you
+   must **create the data** (you have drush/DB access — create the user, grant the
+   account, create/assign the record of the exact shape the ticket needs) and then
+   test. An empty screen you couldn't act on is BLOCKED, never PASS.
+4. **Asserted the wrong thing.** You must locate the ticket's **specific element /
+   behavior** (the exact link, button, column, value the issue is about) in the DOM
+   and prove it with a screenshot. "Looks fine" without finding that element fails.
+5. **Login not actually verified.** Confirm you are authenticated as the intended
+   user (right name shown, landed off `/login`) before claiming any logged-in step.
+   A test user named in the registry that you never confirmed exists/logged-in is
+   not evidence — verify it.
+
+If any gate trips and you cannot resolve it, the deliverable is a clear
+**BLOCKED/FAIL** report saying precisely what's missing and why — that is far more
+useful than a green-washed "pass."
+
+---
+
 ## 1. Start the environment
 
 Start only what the task touches:
 - **Drupal backend** (project has ddev / `local_urls.backend`): `cd {project_dir} && ddev start`. Backend URL = `local_urls.backend`.
 - **Next.js front** (project has a front and `local_urls.frontend`): `cd {project_dir}/front && npm install && (npm run dev &)` — serves `local_urls.frontend`. Wait until it responds before testing. (Drupal-only projects like pandit have no front — skip.)
 - If neither URL is declared, there is no live UI to browser-test → fall back to `test_commands` only.
+
+**The backend you test against MUST contain this task's backend changes.** A front
+served locally talks to whatever backend its config points at — if that backend
+doesn't have this ticket's serializer/API change, the feature physically cannot
+appear and a "pass" is meaningless (the KNS-189 failure). Before testing a
+cross-repo change: confirm every repo's commits for this task are live in the env
+you're about to use (point the front at the dev/test backend that has them, or
+deploy the backend half first). If you can't get all halves into one running env,
+that's **BLOCKED** (gate §0.2).
 
 ## 2. Test users — REUSE first, create only if needed (LOCAL ONLY)
 
@@ -64,6 +110,7 @@ Post the testplan as a Jira comment (`mcp__atlassian__addCommentToJiraIssue`).
 - Run the repo's `test_commands` (`test_commands.backend` / `frontend`, e.g. build + lint) and confirm they pass.
 - Confirm the **original Jira symptom** is gone by observing the fixed screen.
 - Record pass/fail per step (with what you saw, plus a screenshot of the failure) in `test-log.md`.
+- A step you **skipped** (couldn't run due to env/data/deploy) counts as **FAIL/BLOCKED**, not PASS — re-read §0. Never downgrade "I couldn't test the feature" into "the testable parts passed."
 - **On any step failure → go back to the solver, then back to testing.** Do NOT proceed, do NOT open/advance the PR, do NOT mark anything done. Return to PROCESS-TASK.md "§4 Solve the Issue", fix the root cause, then re-run the testplan **from the start** in the browser. Repeat until every step passes. The cycle is solve → test → (fail) → solve → test, and only a fully-green run exits the loop. Keep each failed attempt's screenshots so the history is visible.
 
 ## 7. After-capture + Jira test report
@@ -96,3 +143,12 @@ Then continue with the PR / Jira-transition steps in PROCESS-TASK.md.
 
 - The browser MCP is wired in `config/playwright-mcp.json` (headless system Chrome) and passed to the session via `--mcp-config` in `scripts/claude-jira-cron.sh`.
 - Browser testing is turn-heavy; if a session is cut off mid-test it may finish the work but never transition Jira. (Tune `--max-turns` in the cron if this recurs.)
+- **KNS-189 false-pass (real run, do not repeat):** the tester ran the front locally
+  against the **production** backend (which lacked the ticket's Drupal change), so the
+  feature couldn't appear; the test user had no account/assignments, so the page was
+  empty; it therefore skipped the actual link checks and concluded "all testable
+  aspects pass / conditionally correct." All wrong — see §0. The feature was in fact
+  broken (link rendered but invisible, and absent entirely for item-level
+  assignments). Lesson encoded as the §0 hard gates: test where every repo's change
+  is live, create the data you need, assert the ticket's specific element, and report
+  BLOCKED rather than green-washing.
