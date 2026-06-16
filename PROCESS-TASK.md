@@ -187,9 +187,19 @@ When checking this issue in future sessions — only act if there is new activit
 
 ---
 
-## 5. Test
+## 5. Test  — HARD GATE, do not skip
 
-**The full testing phase is documented in its own file — follow `TESTING.md` (canonical).** It covers: writing the test plan as executable browser steps (for YOU to run, not a checklist for Roi), running each step via the playwright MCP and asserting on-screen, per-step screenshots, running `test_commands`, the after-capture, and the HTML test report. Do not skip it; if `TESTING.md` and this section ever conflict, `TESTING.md` wins.
+**This step is mandatory for any UI/behaviour change and gates everything after it.**
+You may not proceed to §6 Commit / §7 PR treating the task as shippable until you have
+actually exercised the change in a real browser per `TESTING.md`. A change that was
+not tested is not done — see `TESTING.md` §0 hard gates (PASS only if the ticket's
+behavior ran green in a browser; otherwise FAIL/BLOCKED, never "conditionally pass").
+
+**The full testing phase is documented in its own file — follow `TESTING.md` (canonical).** It covers: writing the test plan as executable browser steps (for YOU to run, not a checklist for Roi), running each step via the playwright MCP and asserting on-screen, per-step screenshots, running `test_commands`, the after-capture, and the Jira test comment with inline screenshots. Do not skip it; if `TESTING.md` and this section ever conflict, `TESTING.md` wins.
+
+Testing leaves evidence the Exit Checklist (checks 5–6) verifies: screenshots +
+`test-log.md` in `$TASK_CONTEXT_DIRECTORY`, and a Jira test comment. If those don't
+exist, you have not tested.
 
 ---
 
@@ -462,6 +472,12 @@ What this means for you:
 
 ## Exit Checklist
 
+**The session is NOT done when the PR is opened.** Opening the PR and posting the
+Jira comment is the *middle* of the job, not the end. A task is only complete once
+it has been **tested** and **approved for merge** (or explicitly BLOCKED with a
+reason). Sessions that exited at "PR opened" (e.g. KNS-190) stranded the task — it
+was never tested and never merged. Do not repeat that.
+
 **Before ending the session, verify every applicable item:**
 
 | # | Check | How to verify |
@@ -470,8 +486,13 @@ What this means for you:
 | 2 | PR exists and is open | `gh pr view $TASK_PR_NUMBER --repo {repo}` |
 | 3 | PR is linked in Jira Development panel | `mcp__atlassian__getJiraIssueRemoteIssueLinks` |
 | 4 | Jira comment posted with PR link | `mcp__atlassian__getJiraIssue` → `fields.comment` |
-| 5 | `$TASK_CONTEXT_FILE` status is `waiting for PR review` | `cat "$TASK_CONTEXT_FILE"` |
+| 5 | **Testing actually ran** (for any UI/behaviour task): test artifacts exist in `$TASK_CONTEXT_DIRECTORY` (≥1 screenshot + `test-log.md`) AND a Jira **test comment with inline screenshots** was posted per `TESTING.md` §7 | `ls "$TASK_CONTEXT_DIRECTORY"/*.png "$TASK_CONTEXT_DIRECTORY"/test-log.md` and `mcp__atlassian__getJiraIssue` → `fields.comment` |
+| 6 | **PR is approved for merge**: it carries the **`reviewed-ok`** label (review/approve step §F ran clean), OR **`reviewed-pending-sibling`** (paired backend PR awaits Roi), OR the session is genuinely **BLOCKED** and that block is documented in a Jira comment + `$TASK_CONTEXT_FILE` | `gh pr view $TASK_PR_NUMBER --repo {repo} --json labels` |
+| 7 | `$TASK_CONTEXT_FILE` status is `waiting for PR review` | `cat "$TASK_CONTEXT_FILE"` |
 
-**If any check fails, fix it before exiting.**
+**If any check fails, fix it before exiting** — that means going back and running
+§5 Test and/or §F review-and-approve. Checks 5 and 6 are the ones most often skipped;
+they are not optional. "I opened the PR" is **not** a passing exit.
 
-Do not skip this checklist. The user will not review work that is not in "Review" status in Jira.
+Do not skip this checklist. The user will not review work that is not tested and
+in "Review" status in Jira.

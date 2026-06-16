@@ -7,9 +7,11 @@ Deterministic, no LLM. Runs on a cron. For each enabled project it checks:
   1. Stuck Jira status — a queue task is `done` and a PR exists for the issue, but
      Jira is still "Work in progress"/"In Progress" (never advanced to Review).
      FIX: transition the Jira issue to "Review".
-  2. Missing reviewed-ok — an open dev-targeted PR is mergeable, CI green, authored
-     by the deploy-eligible account, but has no `reviewed-ok` label and is sitting.
-     FLAG only (review must gate the label; we don't approve unreviewed work).
+  2. Missing reviewed-ok — an open dev-targeted PR is mergeable/clean but has no
+     `reviewed-ok` (and isn't held as `reviewed-pending-sibling`): the solver exited
+     before its test + review/approve steps (the KNS-190 failure: stopped at "PR
+     opened"). We do NOT approve unreviewed work; instead REQUEUE the issue so a
+     fresh session completes test + review-and-approve (idempotent; skip-if-live).
   3. Stray repo PNGs / dirty tree — test screenshots left in a project repo working
      tree. FIX: move stray *.png at repo root into ~/dev-context/_reconciled/ and
      report. (Conservative: only untracked PNGs directly in a repo root.)
@@ -24,6 +26,7 @@ Usage: reconcile.py [--dry-run]
 
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.parse
@@ -185,14 +188,46 @@ def check_project(proj):
             labels = [l["name"] for l in pr.get("labels", [])]
             if "reviewed-ok" in labels or "danger" in labels:
                 continue
+            if "reviewed-pending-sibling" in labels:
+                continue  # intentionally held for a paired backend PR — poll-github promotes it
             num = pr["number"]
             # mergeable + clean check (cheap signal: mergeable_state)
             detail = gh(f"repos/{repo}/pulls/{num}")
             mstate = (detail or {}).get("mergeable_state", "unknown")
-            if mstate in ("clean", "unstable"):  # unstable = checks pending but mergeable
+            if mstate not in ("clean", "unstable"):  # unstable = checks pending but mergeable
+                continue
+            # An open, clean, dev-targeted PR with no reviewed-ok means the solver
+            # session exited before running its test + review/approve steps (the
+            # KNS-190 failure: ended at "PR opened"). Don't approve unreviewed work
+            # ourselves — instead REQUEUE the issue so a fresh session completes the
+            # test + review-and-approve steps (the hardened Exit Checklist forces it).
+            key = (pr.get("head", {}).get("ref") or "").upper()
+            m = re.match(r"([A-Z]+-\d+)", key)
+            key = m.group(1) if m else None
+            if not key:
                 findings.append(("FLAG", name,
-                    f"{repo} PR #{num} ('{pr['title'][:50]}') is open, {mstate}, no reviewed-ok — "
-                    f"review-approve step likely didn't run; needs review/label to merge"))
+                    f"{repo} PR #{num} ('{pr['title'][:50]}') open, {mstate}, no reviewed-ok — "
+                    f"can't derive Jira key from branch; needs manual review/label"))
+                continue
+            # Don't pile up: skip if a non-done task for this key is already queued/running.
+            live = psql(
+                "SELECT count(*) FROM tasks "
+                f"WHERE project_dir='{pdir}' AND task_key='{key}' AND status <> 'done'"
+            )
+            if live and live[0] and int(live[0][0]) > 0:
+                continue
+            if DRY:
+                findings.append(("FIX", name,
+                    f"{key}: {repo} PR #{num} open, {mstate}, no reviewed-ok → would requeue "
+                    f"to finish test+review [dry-run]"))
+            else:
+                payload = json.dumps({"type": "jira_issue", "key": key})
+                dedup = f"reconcile:{key}:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
+                r = sh(f'''bash "{DEV_AI}/scripts/queue.sh" push "{pdir}" '{payload}' "{dedup}"''')
+                ok = r.returncode == 0
+                findings.append(("FIX", name,
+                    f"{key}: {repo} PR #{num} open, {mstate}, no reviewed-ok (review-approve step "
+                    f"didn't run) → {'requeued to finish test+review' if ok else 'requeue FAILED'}"))
 
     # ---- 3: stray PNGs in repo working trees ----------------------------------
     for repo in cfg.get("repos", []):
