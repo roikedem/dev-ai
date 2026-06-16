@@ -209,6 +209,14 @@ def check_project(proj):
                     f"{repo} PR #{num} ('{pr['title'][:50]}') open, {mstate}, no reviewed-ok — "
                     f"can't derive Jira key from branch; needs manual review/label"))
                 continue
+            # Only requeue issues that are NOT already finished. If Roi has marked the
+            # Jira Done/Closed/Canceled, the open PR is a leftover, not work to finish —
+            # don't reopen it. Unknown status (None) → skip too (can't verify).
+            jstatus = jira_status(key)
+            if jstatus is None or jstatus.lower() in (
+                "done", "completed", "closed", "canceled", "cancelled"
+            ):
+                continue
             # Don't pile up: skip if a non-done task for this key is already queued/running.
             live = psql(
                 "SELECT count(*) FROM tasks "
