@@ -135,6 +135,11 @@ Do NOT attach an html file (Jira can't render it usefully). Instead post a **sin
 
 The reader should follow the entire test — symptom → interactions → fixed result — scrolling one Jira comment, images shown inline. No html attachment.
 
+**Screenshots are mandatory — and their absence must be justified in writing.** A PASS comment with no inline images is not acceptable: Roi tests from the screenshots, and a "tested ✓" with nothing to look at reads as untested (this happened on KNS-192 — a test report with zero screenshots). So:
+- If you ran the browser test, the comment MUST embed the before/step/after screenshots inline (above).
+- If for any reason you could **not** capture or upload one or more screenshots (MCP screenshot failed, upload errored, element never rendered, etc.), the comment MUST contain an explicit line: **`Screenshots: none — <concrete reason>`** (or `Screenshots: partial — <which steps lack one and why>`). Never silently omit them.
+- "Couldn't get a screenshot of the actual feature behavior" is itself a **BLOCKED** signal (§0) — if you have no visual proof the ticket's behavior ran green, you almost certainly cannot honestly report PASS. Re-read §0 before deciding.
+
 Then continue with the PR / Jira-transition steps in PROCESS-TASK.md.
 
 ---

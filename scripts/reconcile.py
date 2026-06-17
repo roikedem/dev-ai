@@ -237,6 +237,32 @@ def check_project(proj):
                     f"{key}: {repo} PR #{num} open, {mstate}, no reviewed-ok (review-approve step "
                     f"didn't run) → {'requeued to finish test+review' if ok else 'requeue FAILED'}"))
 
+    # ---- 2b: reviewed-ok PRs that can't merge (wedged) ------------------------
+    # A PR that is reviewed-ok + green but NOT cleanly mergeable never merges: the
+    # auto-merge gate (poll-github) requires `mergeable` and silently skips it on
+    # every poll. (KNS-191 #128: shared the branch a prior PR was rebase-merged
+    # from, so dev diverged → permanent conflict.) Nothing else surfaces this, so
+    # it sits wedged forever while Jira stays in Review. Flag it for Roi.
+    for repo in repos:
+        base = next((r.get("base_branch") for r in cfg.get("repos", []) if r["github"] == repo), None)
+        prs = gh(f"repos/{repo}/pulls?state=open&per_page=30") or []
+        for pr in prs:
+            if base and pr.get("base", {}).get("ref") != base:
+                continue
+            labels = [l["name"] for l in pr.get("labels", [])]
+            if "reviewed-ok" not in labels:
+                continue
+            num = pr["number"]
+            detail = gh(f"repos/{repo}/pulls/{num}")
+            mstate = (detail or {}).get("mergeable_state", "unknown")
+            # clean = ready; unstable = checks pending but mergeable; behind = base
+            # moved (poll-github updates it). Anything else with reviewed-ok is stuck.
+            if mstate not in ("clean", "unstable", "behind"):
+                findings.append(("FLAG", name,
+                    f"{repo} PR #{num} ('{pr['title'][:50]}') is reviewed-ok but "
+                    f"mergeable_state={mstate} — auto-merge can't merge it; needs a "
+                    f"rebase/conflict-fix or close"))
+
     # ---- 3: stray PNGs in repo working trees ----------------------------------
     for repo in cfg.get("repos", []):
         local = Path(repo["local"])
@@ -266,6 +292,25 @@ def check_project(proj):
                 findings.append(("FIX", name,
                     f"{repo}: moved {len(moved)} stray screenshot(s) out of repo root → {RECONCILED_DIR}"
                     f"{' [dry-run]' if DRY else ''}: {', '.join(moved)}"))
+
+    # ---- 3b: uncommitted tracked edits left in a repo (orphaned work) ----------
+    # An agent that edits files but exits without committing leaves the change
+    # stranded — invisible, never pushed, lost on the next checkout. (KNS-191: a
+    # review-comment run edited assignment-teaser.tsx and exited 'done' with the
+    # edit uncommitted.) --untracked-files=no so this won't double-fire on the
+    # stray .png case handled above; only real modified/deleted tracked files.
+    for repo in cfg.get("repos", []):
+        local = Path(repo["local"])
+        if not (local / ".git").exists():
+            continue
+        r = sh(f'git -C "{local}" status --porcelain --untracked-files=no')
+        dirty = [ln for ln in r.stdout.splitlines() if ln.strip()]
+        if dirty:
+            files = ", ".join(ln[3:] for ln in dirty[:5])
+            more = f" (+{len(dirty)-5} more)" if len(dirty) > 5 else ""
+            findings.append(("FLAG", name,
+                f"{repo['github']}: {len(dirty)} uncommitted tracked change(s) left in the "
+                f"working tree — an agent edited but never committed: {files}{more}"))
 
 
 def main():
