@@ -27,6 +27,7 @@ Usage: reconcile.py [--dry-run]
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import urllib.parse
@@ -81,6 +82,25 @@ def jira_status(key):
     if not d:
         return None
     return d["fields"]["status"]["name"]
+
+
+def jira_transition_to_review(key):
+    """Move a Jira issue to 'Review'. Idempotent enough — caller checks status first."""
+    d = jira_get(f"issue/{key}/transitions")
+    tid = next((t["id"] for t in (d or {}).get("transitions", [])
+                if t["name"].lower() == "review"), None)
+    if not tid:
+        return False
+    body = shlex.quote(json.dumps({"transition": {"id": tid}}))
+    cmd = (f'curl -sf -u "{JIRA_EMAIL}:{JIRA_TOKEN}" -H "Content-Type: application/json" '
+           f'-X POST "{JIRA_BASE}/issue/{key}/transitions" -d {body}')
+    return sh(cmd).returncode == 0
+
+
+def repo_auto_merge(cfg, repo):
+    """True if this repo auto-merges (front); False = needs Roi's manual review (Drupal)."""
+    return any(r.get("auto_merge_when_green")
+               for r in cfg.get("repos", []) if r["github"] == repo)
 
 
 def gh(path):
@@ -166,9 +186,19 @@ def check_project(proj):
         if live and live[0] and int(live[0][0]) > 0:
             continue
 
+        # An open PR on a manual-review repo (Drupal) is waiting on ROI, not the
+        # pipeline — set Jira to 'Review' so it surfaces on his board. Auto-merge
+        # repos (front) instead requeue so the pipeline finishes its own review.
+        manual_review = bool(pr) and pr[0] == "OPEN" and not repo_auto_merge(cfg, pr[2])
         if DRY:
             findings.append(("FIX", name,
-                f"{key}: queue 'done' but Jira still '{jstatus}' ({pr_desc}) → would requeue [dry-run]"))
+                f"{key}: queue 'done' but Jira '{jstatus}' ({pr_desc}) → "
+                f"{'would set Review' if manual_review else 'would requeue'} [dry-run]"))
+        elif manual_review:
+            ok = jira_transition_to_review(key)
+            findings.append(("FIX", name,
+                f"{key}: open PR #{pr[1]} awaiting manual review → "
+                f"{'Jira set to Review' if ok else 'Review transition FAILED'}"))
         else:
             payload = json.dumps({"type": "jira_issue", "key": key})
             dedup = f"reconcile:{key}:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
@@ -224,10 +254,20 @@ def check_project(proj):
             )
             if live and live[0] and int(live[0][0]) > 0:
                 continue
+            # Manual-review repo (Drupal): no reviewed-ok ever — it waits on Roi, so
+            # set Jira to 'Review'. Auto-merge repo (front): requeue to finish review.
+            manual_review = not repo_auto_merge(cfg, repo)
+            if manual_review and jstatus.lower() in ("review", "in review"):
+                continue  # already on Roi's review board — nothing to do
             if DRY:
                 findings.append(("FIX", name,
-                    f"{key}: {repo} PR #{num} open, {mstate}, no reviewed-ok → would requeue "
-                    f"to finish test+review [dry-run]"))
+                    f"{key}: {repo} PR #{num} no reviewed-ok → "
+                    f"{'would set Review' if manual_review else 'would requeue'} [dry-run]"))
+            elif manual_review:
+                ok = jira_transition_to_review(key)
+                findings.append(("FIX", name,
+                    f"{key}: {repo} PR #{num} awaiting manual review → "
+                    f"{'Jira set to Review' if ok else 'Review transition FAILED'}"))
             else:
                 payload = json.dumps({"type": "jira_issue", "key": key})
                 dedup = f"reconcile:{key}:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
