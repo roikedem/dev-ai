@@ -331,34 +331,48 @@ def main():
     if not findings:
         log("clean — no inconsistencies found")
 
-    # Email a digest, but ONLY when the picture changed since last run — a fix
-    # happened, or a new flag appeared that wasn't flagged before. Otherwise the
-    # same standing flags would email every 30 min. State kept in a small file.
+    # Notification policy: a DAILY DIGEST. Email at most once per calendar day, and
+    # only when something actually needs attention (a flag is open). Auto-fixes are
+    # NEVER emailed — they need no action and are already in the log. State tracks the
+    # flag set as of the last email (to mark items new since you were last told) and
+    # the date we last emailed, so standing flags nudge at most once a day.
     state_file = DEV_AI / "logs" / ".reconcile-flagged.json"
-    prev = set()
+    emailed = set()
+    last_email_date = ""
     try:
-        prev = set(json.loads(state_file.read_text()))
+        st = json.loads(state_file.read_text())
+        if isinstance(st, dict):
+            emailed = set(st.get("emailed_flags", []))
+            last_email_date = st.get("last_email_date", "")
+        else:  # legacy: bare list of flag keys
+            emailed = set(st)
     except Exception:
         pass
-    cur_flags = {f"{p}|{m}" for _, p, m in flags}
-    new_flags = cur_flags - prev
-    if not DRY:
-        state_file.write_text(json.dumps(sorted(cur_flags)))
 
-    should_email = bool(fixes) or bool(new_flags)
+    cur_flags = {f"{p}|{m}" for _, p, m in flags}
+    new_flags = cur_flags - emailed
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # Daily digest: send only if there are open flags AND we haven't emailed today.
+    should_email = bool(flags) and last_email_date != today
+
     if should_email and not DRY:
-        lines = []
-        if fixes:
-            lines.append("<p><strong>Auto-fixed:</strong></p><ul>" +
-                         "".join(f"<li>[{p}] {m}</li>" for _, p, m in fixes) + "</ul>")
-        if flags:
-            tag = lambda key: " <em>(new)</em>" if key in new_flags else ""
-            lines.append("<p><strong>Needs attention:</strong></p><ul>" +
-                         "".join(f"<li>[{p}] {m}{tag(p+'|'+m)}</li>" for _, p, m in flags) + "</ul>")
-        body = "".join(lines)
+        tag = lambda key: " <em>(new)</em>" if key in new_flags else ""
+        body = ("<p>These pipeline items need attention "
+                "(auto-fixes are in the log, not emailed):</p><ul>" +
+                "".join(f"<li>[{p}] {m}{tag(p+'|'+m)}</li>" for _, p, m in flags) +
+                "</ul>")
+        n_new = len(new_flags)
+        subj = (f"Pipeline: {len(flags)} item(s) need attention" +
+                (f" ({n_new} new)" if n_new else ""))
         sh(f'''bash "{HOME}/projects/team/scripts/send-mail-internal.sh" '''
-           f'''"Pipeline reconcile: {len(fixes)} fixed, {len(new_flags)} new flag(s)" '''
-           f'''"{body}" "manager@roikedem.com" "Team Manager"''')
+           f'''"{subj}" "{body}" "manager@roikedem.com" "Team Manager"''')
+
+    if not DRY:
+        state_file.write_text(json.dumps({
+            "emailed_flags": sorted(cur_flags if should_email else emailed),
+            "last_email_date": today if should_email else last_email_date,
+        }))
     return 0
 
 
