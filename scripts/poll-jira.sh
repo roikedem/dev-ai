@@ -35,11 +35,24 @@ COMMENTS_SEEN=0
 COMMENTS_NEW=0
 
 # --- Fetch open issues assigned to Claude agent ---
-JQL="project=$PROJECT_KEY AND assignee=\"$ASSIGNEE\" AND statusCategory != Done ORDER BY updated DESC"
+# Scope strictly to the agent. Prefer the stable accountId — display names can be
+# changed/anonymized/collide, and an empty identifier would make the JQL match
+# EVERY assignee (incl. Roi's own tasks). Refuse to run unscoped.
+if [ -n "$AGENT_ACCOUNT_ID" ] && [ "$AGENT_ACCOUNT_ID" != "null" ]; then
+    ASSIGNEE_CLAUSE="assignee = \"$AGENT_ACCOUNT_ID\""
+elif [ -n "$ASSIGNEE" ] && [ "$ASSIGNEE" != "null" ]; then
+    ASSIGNEE_CLAUSE="assignee = \"$ASSIGNEE\""
+    log "WARN: jira_agent_account_id not set — matching assignee by display name (fragile)"
+else
+    log "refusing to poll: neither jira_agent_account_id nor jira_assignee configured"
+    exit 1
+fi
+
+JQL="project=$PROJECT_KEY AND $ASSIGNEE_CLAUSE AND statusCategory != Done ORDER BY updated DESC"
 ENCODED_JQL=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$JQL")
 
 RESPONSE=$(curl -sf -u "$EMAIL:$API_TOKEN" -H "Accept: application/json" \
-    "$BASE_URL/search/jql?jql=$ENCODED_JQL&maxResults=20&fields=summary,status,comment")
+    "$BASE_URL/search/jql?jql=$ENCODED_JQL&maxResults=20&fields=summary,status,assignee,comment")
 
 if [ $? -ne 0 ]; then
     log "Jira API request failed"
@@ -55,6 +68,17 @@ while IFS= read -r issue; do
     KEY=$(echo "$issue" | jq -r '.key')
     SUMMARY=$(echo "$issue" | jq -r '.fields.summary')
     STATUS=$(echo "$issue" | jq -r '.fields.status.name')
+
+    # Defense in depth: never queue an issue that isn't actually assigned to the
+    # agent, even if the JQL above is loosened or wrong. This is the guard that
+    # would have kept a Roi-assigned task (e.g. KNS-228) out of the pipeline.
+    if [ -n "$AGENT_ACCOUNT_ID" ] && [ "$AGENT_ACCOUNT_ID" != "null" ]; then
+        ISSUE_ASSIGNEE=$(echo "$issue" | jq -r '.fields.assignee.accountId // ""')
+        if [ "$ISSUE_ASSIGNEE" != "$AGENT_ACCOUNT_ID" ]; then
+            log "SKIP $KEY: assignee '$ISSUE_ASSIGNEE' is not the agent — not queuing"
+            continue
+        fi
+    fi
 
     TASK=$(jq -nc \
         --arg type "jira_issue" \
