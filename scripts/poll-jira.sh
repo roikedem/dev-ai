@@ -23,32 +23,29 @@ API_TOKEN=$(cat "$API_TOKEN_FILE" | tr -d '\r\n')
 
 CLOUD_ID=$(jq -r '.jira_cloud_id' "$CONFIG")
 PROJECT_KEY=$(jq -r '.jira_project_key' "$CONFIG")
-ASSIGNEE=$(jq -r '.jira_assignee' "$CONFIG")
-AGENT_ACCOUNT_ID=$(jq -r '.jira_agent_account_id // ""' "$CONFIG")
 EMAIL="roikedem+claudecode@gmail.com"
 
 BASE_URL="https://intotodev.atlassian.net/rest/api/3"
+
+# Resolve the agent's OWN accountId from the credentials we authenticate with.
+# Everything downstream scopes to this id, so the pipeline can only ever see and
+# act on its own tasks — never one assigned to Roi (e.g. KNS-228) or anyone else.
+SELF_ID=$(curl -sf -u "$EMAIL:$API_TOKEN" -H "Accept: application/json" \
+    "$BASE_URL/myself" | jq -r '.accountId // ""')
+if [ -z "$SELF_ID" ]; then
+    log "refusing to poll: could not resolve agent accountId from /myself"
+    exit 1
+fi
 
 ISSUES_SEEN=0
 ISSUES_NEW=0
 COMMENTS_SEEN=0
 COMMENTS_NEW=0
 
-# --- Fetch open issues assigned to Claude agent ---
-# Scope strictly to the agent. Prefer the stable accountId — display names can be
-# changed/anonymized/collide, and an empty identifier would make the JQL match
-# EVERY assignee (incl. Roi's own tasks). Refuse to run unscoped.
-if [ -n "$AGENT_ACCOUNT_ID" ] && [ "$AGENT_ACCOUNT_ID" != "null" ]; then
-    ASSIGNEE_CLAUSE="assignee = \"$AGENT_ACCOUNT_ID\""
-elif [ -n "$ASSIGNEE" ] && [ "$ASSIGNEE" != "null" ]; then
-    ASSIGNEE_CLAUSE="assignee = \"$ASSIGNEE\""
-    log "WARN: jira_agent_account_id not set — matching assignee by display name (fragile)"
-else
-    log "refusing to poll: neither jira_agent_account_id nor jira_assignee configured"
-    exit 1
-fi
-
-JQL="project=$PROJECT_KEY AND $ASSIGNEE_CLAUSE AND statusCategory != Done ORDER BY updated DESC"
+# --- Fetch open issues assigned to the agent itself ---
+# assignee = currentUser() resolves server-side to the authenticated account, so
+# this is impossible to misconfigure into matching someone else's tasks.
+JQL="project=$PROJECT_KEY AND assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
 ENCODED_JQL=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$JQL")
 
 RESPONSE=$(curl -sf -u "$EMAIL:$API_TOKEN" -H "Accept: application/json" \
@@ -70,14 +67,12 @@ while IFS= read -r issue; do
     STATUS=$(echo "$issue" | jq -r '.fields.status.name')
 
     # Defense in depth: never queue an issue that isn't actually assigned to the
-    # agent, even if the JQL above is loosened or wrong. This is the guard that
-    # would have kept a Roi-assigned task (e.g. KNS-228) out of the pipeline.
-    if [ -n "$AGENT_ACCOUNT_ID" ] && [ "$AGENT_ACCOUNT_ID" != "null" ]; then
-        ISSUE_ASSIGNEE=$(echo "$issue" | jq -r '.fields.assignee.accountId // ""')
-        if [ "$ISSUE_ASSIGNEE" != "$AGENT_ACCOUNT_ID" ]; then
-            log "SKIP $KEY: assignee '$ISSUE_ASSIGNEE' is not the agent — not queuing"
-            continue
-        fi
+    # agent, even if the JQL above is ever loosened or wrong. This is the guard
+    # that would have kept a Roi-assigned task (e.g. KNS-228) out of the pipeline.
+    ISSUE_ASSIGNEE=$(echo "$issue" | jq -r '.fields.assignee.accountId // ""')
+    if [ "$ISSUE_ASSIGNEE" != "$SELF_ID" ]; then
+        log "SKIP $KEY: assignee '$ISSUE_ASSIGNEE' is not the agent — not queuing"
+        continue
     fi
 
     TASK=$(jq -nc \
@@ -93,13 +88,9 @@ while IFS= read -r issue; do
         ISSUES_NEW=$((ISSUES_NEW + 1))
     fi
 
-    # Queue any new comments on this issue (comments from humans, not from Claude agent)
-    # Filter by accountId when available (more reliable than displayName which Jira may anonymize)
-    if [ -n "$AGENT_ACCOUNT_ID" ]; then
-        COMMENTS=$(echo "$issue" | jq -c --arg id "$AGENT_ACCOUNT_ID" '.fields.comment.comments[]? | select(.author.accountId != $id)')
-    else
-        COMMENTS=$(echo "$issue" | jq -c '.fields.comment.comments[]? | select(.author.displayName != "'"$ASSIGNEE"'")')
-    fi
+    # Queue any new comments on this issue (comments from humans, not from the agent).
+    # Filter by the agent's own accountId — reliable even if Jira anonymizes names.
+    COMMENTS=$(echo "$issue" | jq -c --arg id "$SELF_ID" '.fields.comment.comments[]? | select(.author.accountId != $id)')
     while IFS= read -r comment; do
         [ -z "$comment" ] && continue
         COMMENTS_SEEN=$((COMMENTS_SEEN + 1))
