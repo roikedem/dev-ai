@@ -103,6 +103,15 @@ If the issue involves any of the following, **backup the database before startin
 
 **Tool:** `mcp__atlassian__getJiraIssue` with `cloudId: {jira_cloud_id}`
 
+### Choosing which repo(s) to solve in
+
+Decide the target repo from the issue **before** branching:
+
+- **Honor explicit signals first.** A layer hint in the title (`front:` / `frontend:` → solve in the frontend repo, e.g. `knesset-front`; `back:` / `backend:` → the backend repo, e.g. `knesset-data`), a `frontend`/`backend` label, or a matching component **overrides your own judgment**. A `front:` issue must be solved in the frontend repo even if a backend fix looks possible — never silently re-route it to the other repo.
+- **No explicit signal?** Judge by the nature of the change: UI / rendering / display / layout → frontend; data model / API / serialization / business logic → backend.
+- **Spans both?** Split the work and open one PR per repo (§7), each on its own `base_branch`.
+- If you think the signalled repo is wrong, still do the work where it's signalled and raise the concern in the Jira comment (§8) — do not override it unannounced.
+
 ---
 
 ## 2. Move to "In Progress"
