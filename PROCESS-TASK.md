@@ -112,6 +112,16 @@ Decide the target repo from the issue **before** branching:
 - **Spans both?** Split the work and open one PR per repo (§7), each on its own `base_branch`.
 - If you think the signalled repo is wrong, still do the work where it's signalled and raise the concern in the Jira comment (§8) — do not override it unannounced.
 
+### Prefer existing client-side data over new backend fields
+
+Before adding or serializing a **new backend field** just to feed the frontend, check whether the frontend can already get the value without a backend change:
+
+- Does the frontend already load the source entity into its cache? (e.g. knesset-front fetches all `committee_session` / `plenum_session` entities, which already carry `start_date`, `committee_ref`, etc.)
+- Does the payload the frontend already receives include a join key (`nid` / `odata_id`) it can use to look that entity up?
+- Is there an existing **hydration helper** for this resolution? (e.g. `assignment-subject.ts` / `SUBJECT_HYDRATE_BUNDLES` — resolve a reference to its full cached entity.)
+
+If yes to the above, solve it **front-only** by joining on the cached data — do **not** enrich the backend response. Only add a backend field when the data genuinely isn't available client-side, or resolving it would require a per-item fetch. This keeps `front:` issues front-only and avoids backend PRs that need manual review + a Drupal deploy.
+
 ---
 
 ## 2. Move to "In Progress"
