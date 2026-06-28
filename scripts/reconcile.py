@@ -25,6 +25,7 @@ Usage: reconcile.py [--dry-run]
 """
 
 import json
+import html
 import os
 import re
 import shlex
@@ -48,6 +49,7 @@ RECONCILED_DIR = HOME / "dev-context" / "_reconciled"
 LOG = DEV_AI / "logs" / "reconcile.log"
 
 findings = []   # (severity, project, msg) — severity: FIX|FLAG
+details = {}    # "{project}|{msg}" -> extra HTML (e.g. a diff) shown in the email only
 
 
 def log(msg):
@@ -348,9 +350,18 @@ def check_project(proj):
         if dirty:
             files = ", ".join(ln[3:] for ln in dirty[:5])
             more = f" (+{len(dirty)-5} more)" if len(dirty) > 5 else ""
-            findings.append(("FLAG", name,
-                f"{repo['github']}: {len(dirty)} uncommitted tracked change(s) left in the "
-                f"working tree — an agent edited but never committed: {files}{more}"))
+            msg = (f"{repo['github']} ({local}): {len(dirty)} uncommitted tracked "
+                   f"change(s) — an agent edited but never committed: {files}{more}")
+            findings.append(("FLAG", name, msg))
+            # Attach the actual diff so the email is self-explanatory (path + what changed).
+            diff = sh(f'git -C "{local}" diff HEAD').stdout
+            if diff.strip():
+                shown = html.escape(diff[:4000])
+                if len(diff) > 4000:
+                    shown += f"\n…(truncated — full diff: git -C {local} diff HEAD)"
+                details[f"{name}|{msg}"] = (
+                    '<pre style="font-size:12px;white-space:pre-wrap;background:#f6f6f6;'
+                    f'border:1px solid #ddd;padding:8px;overflow:auto">{shown}</pre>')
 
 
 def main():
@@ -400,7 +411,7 @@ def main():
         tag = lambda key: " <em>(new)</em>" if key in new_flags else ""
         body = ("<p>These pipeline items need attention "
                 "(auto-fixes are in the log, not emailed):</p><ul>" +
-                "".join(f"<li>[{p}] {m}{tag(p+'|'+m)}</li>" for _, p, m in flags) +
+                "".join(f"<li>[{p}] {m}{tag(p+'|'+m)}{details.get(p+'|'+m,'')}</li>" for _, p, m in flags) +
                 "</ul>")
         n_new = len(new_flags)
         subj = (f"Pipeline: {len(flags)} item(s) need attention" +
