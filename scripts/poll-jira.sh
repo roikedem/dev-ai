@@ -45,7 +45,7 @@ COMMENTS_NEW=0
 # --- Fetch open issues assigned to the agent itself ---
 # assignee = currentUser() resolves server-side to the authenticated account, so
 # this is impossible to misconfigure into matching someone else's tasks.
-JQL="project=$PROJECT_KEY AND assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
+JQL="project=$PROJECT_KEY AND assignee = currentUser() AND status in ('To Do', 'In Progress') ORDER BY updated DESC"
 ENCODED_JQL=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$JQL")
 
 RESPONSE=$(curl -sf -u "$EMAIL:$API_TOKEN" -H "Accept: application/json" \
