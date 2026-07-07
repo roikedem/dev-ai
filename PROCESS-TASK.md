@@ -73,7 +73,7 @@ Examples:
 [2026-04-27T10:06:00Z] Created branch KNS-36-check-monday-links
 [2026-04-27T10:20:00Z] Fixed: updated exportLinks() to use new domain
 [2026-04-27T10:21:00Z] Wrote testplan to testplan.txt, commented on Jira
-[2026-04-27T10:22:00Z] Created PR #42, transitioned Jira to Review
+[2026-04-27T10:22:00Z] Created PR #42 (Jira stays In Progress until merge)
 ```
 
 ---
@@ -266,11 +266,11 @@ POST /rest/api/3/issue/$TASK_KEY/remotelink
 }
 ```
 
-**Transition the Jira issue to "Review" — required before moving on:**
+**Leave the Jira issue in "In Progress" — do NOT move it to "Review" here.**
 
-**Tool:** `mcp__atlassian__getTransitionsForJiraIssue` to find the "Review" transition ID, then `mcp__atlassian__transitionJiraIssue`.
+"Review" now means *shipped and ready for Roi's own review*, so it is set only when the PR **merges** (done automatically by `poll-github.sh`). The whole solve → test → code-review → merge cycle stays "In Progress"; Roi is not part of it.
 
-Log: `Transitioned Jira $TASK_KEY to Review, PR: <PR URL>`
+Log: `Opened PR for $TASK_KEY (Jira stays In Progress until merge): <PR URL>`
 
 **Update `$TASK_CONTEXT_FILE`:**
 
@@ -388,9 +388,7 @@ If no actionable comments exist — nothing to do for this task.
      --field body="Addressed in <commit sha> — brief explanation of what changed."
    ```
 
-9. **Transition the Jira issue back to "Review":**
-
-   **Tool:** `mcp__atlassian__getTransitionsForJiraIssue` then `mcp__atlassian__transitionJiraIssue`.
+9. **Leave the Jira issue in "In Progress"** — do not set it to "Review". As with a fresh PR, `poll-github.sh` moves it to "Review" only when the fix re-merges.
 
 10. **Update `$TASK_CONTEXT_FILE`:**
 
@@ -412,13 +410,11 @@ git checkout {default_branch} && git pull
 
 ---
 
-### E. Merged PR → Move Jira to Review (await Roi)
+### E. Merged PR → Jira in Review (await Roi)
 
-The pipeline never sets a Jira issue to "Done"/"Completed". When work is finished (PR merged), leave the issue in **"Review"** for Roi's decision — he is the only one who moves an issue to Completed.
+The pipeline never sets a Jira issue to "Done"/"Completed" — Roi is the only one who does. When the PR merges, the issue belongs in **"Review"** (= shipped, ready for Roi's own review).
 
-1. **Transition Jira to "Review"** (NOT Done/Completed):
-
-   **Tool:** `mcp__atlassian__getTransitionsForJiraIssue` to find the "Review" transition ID, then `mcp__atlassian__transitionJiraIssue`. If the issue is already in "Review", leave it.
+1. **Ensure Jira is in "Review"** — `poll-github.sh` already transitions it to "Review" automatically on merge, so normally it is already there. Only if it is somehow still "In Progress", transition it: `mcp__atlassian__getTransitionsForJiraIssue` → `mcp__atlassian__transitionJiraIssue`. Never set Done/Completed.
 
 2. **Post before/after screenshots as a Jira comment:**
 
@@ -501,7 +497,7 @@ was never tested and never merged. Do not repeat that.
 
 | # | Check | How to verify |
 |---|---|---|
-| 1 | Jira status is **"Review"** (always — never set Done/Completed; Roi decides that) | `mcp__atlassian__getJiraIssue` → `fields.status.name` |
+| 1 | Jira status is **"In Progress"** (the pipeline never sets Review at PR-open, nor Done — `poll-github.sh` moves it to "Review" on merge; Roi moves it to Done) | `mcp__atlassian__getJiraIssue` → `fields.status.name` |
 | 2 | PR exists and is open | `gh pr view $TASK_PR_NUMBER --repo {repo}` |
 | 3 | PR is linked in Jira Development panel | `mcp__atlassian__getJiraIssueRemoteIssueLinks` |
 | 4 | Jira comment posted with PR link | `mcp__atlassian__getJiraIssue` → `fields.comment` |
@@ -513,5 +509,5 @@ was never tested and never merged. Do not repeat that.
 §5 Test and/or §F review-and-approve. Checks 5 and 6 are the ones most often skipped;
 they are not optional. "I opened the PR" is **not** a passing exit.
 
-Do not skip this checklist. The user will not review work that is not tested and
-in "Review" status in Jira.
+Do not skip this checklist. The change reaches Roi for review only after it
+**merges** (which flips Jira to "Review"); an untested or unapproved PR never gets there.

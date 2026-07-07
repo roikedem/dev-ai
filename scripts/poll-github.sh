@@ -29,6 +29,40 @@ JIRA_API_TOKEN_FILE="$HOME/.config/atlassian-api-token"
 JIRA_EMAIL="roikedem+claudecode@gmail.com"
 JIRA_API_TOKEN=""
 [ -f "$JIRA_API_TOKEN_FILE" ] && JIRA_API_TOKEN=$(tr -d '\r\n' < "$JIRA_API_TOKEN_FILE")
+JIRA_BASE="https://intotodev.atlassian.net"
+
+# Move a Jira issue to "Review" once its PR has merged — "Review" is the signal
+# that the change is shipped and ready for ROI's own review (the AI code/review
+# cycle stays "In Progress"). Deterministic here so it never depends on a
+# follow-up agent session. Idempotent and safe: no-op without creds, and skips
+# if the issue is already at/past Review, so a late merge can't drag a
+# human-set status backwards.
+jira_move_to_review() {
+    local key="$1"
+    [ -z "$key" ] && return 0
+    [ -z "$JIRA_API_TOKEN" ] && return 0
+    local cur
+    cur=$(curl -sf -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -H "Accept: application/json" \
+        "$JIRA_BASE/rest/api/3/issue/$key?fields=status" 2>/dev/null | jq -r '.fields.status.name // empty')
+    case "$cur" in
+        Review|Done|Completed|Closed|Resolved) return 0 ;;
+    esac
+    local tid
+    tid=$(curl -sf -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -H "Accept: application/json" \
+        "$JIRA_BASE/rest/api/3/issue/$key/transitions" 2>/dev/null \
+        | jq -r '.transitions[]? | select(.to.name=="Review") | .id' | head -1)
+    if [ -z "$tid" ]; then
+        log "post-merge: no 'Review' transition available for $key (status=$cur)"
+        return 0
+    fi
+    if curl -sf -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -X POST -H "Content-Type: application/json" \
+        "$JIRA_BASE/rest/api/3/issue/$key/transitions" \
+        -d "{\"transition\":{\"id\":\"$tid\"}}" >/dev/null 2>&1; then
+        log "post-merge: transitioned $key to Review (ready for Roi)"
+    else
+        log "post-merge: FAILED to transition $key to Review"
+    fi
+}
 
 # Build list of repos to poll from the repos array
 mapfile -t REPOS < <(jq -r '.repos[].github' "$CONFIG")
@@ -268,6 +302,7 @@ poll_repo() {
                 local TRIGGER; [ "$ISSUE_AUTO_MERGE" = "true" ] && TRIGGER="jira:auto-merge" || TRIGGER="repo:auto_merge_when_green"
                 if gh pr merge "$PR_NUM" --repo "$REPO" --rebase --delete-branch >/dev/null 2>&1; then
                     log "AUTO-MERGED $REPO PR #$PR_NUM into $BASE_BRANCH (rebase; via $TRIGGER; ci_ok=$CI_OK reviewed-ok, no danger/changes-requested)"
+                    jira_move_to_review "$JIRA_KEY"
                     ADDED=$((ADDED + 1))
                 else
                     log "auto-merge FAILED for $REPO PR #$PR_NUM (via $TRIGGER; state=$STATE n=$NSTAT reviewed_ok=$APPROVED_LABEL mergeable=$MERGEABLE)"
