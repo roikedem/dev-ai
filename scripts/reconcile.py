@@ -404,20 +404,22 @@ def main():
     new_flags = cur_flags - emailed
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # Daily digest: send only if there are open flags AND we haven't emailed today.
+    # Daily digest to the SHARED TEAM LOG (not Roi's inbox). Reconcile flags are
+    # pipeline items needing attention, but Roi told the Team Manager twice he
+    # doesn't know what to do with raw pipeline emails — so they go to internal
+    # triage instead: the Project Manager's daily pass and the Team Manager's
+    # briefing read the team log and decide if anything actually reaches Roi.
+    # Log at most once per calendar day per flag-set, same digest cadence as before.
     should_email = bool(flags) and last_email_date != today
 
     if should_email and not DRY:
-        tag = lambda key: " <em>(new)</em>" if key in new_flags else ""
-        body = ("<p>These pipeline items need attention "
-                "(auto-fixes are in the log, not emailed):</p><ul>" +
-                "".join(f"<li>[{p}] {m}{tag(p+'|'+m)}{details.get(p+'|'+m,'')}</li>" for _, p, m in flags) +
-                "</ul>")
         n_new = len(new_flags)
-        subj = (f"Pipeline: {len(flags)} item(s) need attention" +
-                (f" ({n_new} new)" if n_new else ""))
-        sh(f'''bash "{HOME}/projects/team/scripts/send-mail-internal.sh" '''
-           f'''"{subj}" "{body}" "manager@roikedem.com" "Team Manager"''')
+        summary = "; ".join(f"[{p}] {m}{' (new)' if p+'|'+m in new_flags else ''}"
+                            for _, p, m in flags)
+        msg = (f"Reconcile: {len(flags)} pipeline item(s) need attention"
+               + (f" ({n_new} new)" if n_new else "") + f" — {summary}")
+        sh(f'''bash "{HOME}/projects/team/scripts/log.sh" '''
+           f'''"Team Manager" WARN "{msg}"''')
 
     if not DRY:
         state_file.write_text(json.dumps({
