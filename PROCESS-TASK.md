@@ -243,10 +243,10 @@ git push -u origin <branch-name>
 gh pr create --base <base_branch> --title "$TASK_KEY: brief description" --body "..."
 ```
 
-- **Who merges depends on the repo's base branch:**
-  - **Integration branch with `auto_merge_when_green: true`** (e.g. `knesset-front` → `dev`): the pipeline owns the merge, **but only after review**. The PR targets `dev`, which never deploys to production, so merging it is safe. After opening the PR, run the review-and-approve step (PR Review → step F): the poller merges it once **Vercel is green**, the **`reviewed-ok`** label is present, and nothing is blocking. Do not wait/block in this session; the merge happens in a later poll cycle.
-  - **Production/default branch** (e.g. `knesset-data` → `master`): do **not** merge. Roi reviews and merges these himself — they deploy to production.
-  - **Promotion `dev` → `master`** is always a separate, Roi-controlled PR. The pipeline never opens or auto-merges a PR into a production branch.
+- **Who merges depends on the repo's config, not the branch name:**
+  - **Auto-merge repo (`auto_merge_when_green: true` on its `repos[]` entry)**: the pipeline owns the merge, **but only after review**. After opening the PR, run the review-and-approve step (PR Review → step F); the poller merges once the **`reviewed-ok`** label is present and nothing is blocking. Two flavours: a CI-gated integration branch (e.g. `knesset-front` → `dev`, merges once Vercel is green) or a `no_ci: true` repo whose `base_branch` is its own live branch (e.g. `italy-trip` → `master`, merges on review-clean alone — **this ships straight to the live app, so review carefully**). Do not wait/block in this session; the merge happens in a later poll cycle.
+  - **Non-auto-merge repo (no `auto_merge_when_green`)**: do **not** merge, even into `master`/`dev` (e.g. `knesset-data` → `master`). Roi reviews and merges these himself.
+  - **Promotion `dev` → `master`** (for repos that use a `dev` integration branch) is always a separate, Roi-controlled PR. Never open or auto-merge a PR into such a production branch.
 - PR body should reference the Jira issue key and summarize what changed and why.
 - **Never post a GitHub compare link as a substitute for a PR.** If `gh pr create` fails, verify `$GH_TOKEN` is set (`echo $GH_TOKEN`) and retry. Only post to Jira once a real PR URL exists.
 - Before creating the PR, confirm you are authenticated as the agent: `gh api user --jq .login` must return `ClaudeCodeRoiAgent`. If it returns another user, stop and fix the auth before proceeding.
@@ -450,7 +450,7 @@ A PR is auto-merge-eligible two ways: **(a)** the repo has `auto_merge_when_gree
    jq -r --arg r "{repo}" '.repos[] | select(.github==$r) | "\(.auto_merge_when_green // false) \(.base_branch)"' {project_dir}/.jira-process.json
    # plus: does the Jira issue have the "auto-merge" label?
    ```
-   Proceed if the PR's base equals the repo's `base_branch` (the safe branch, e.g. `dev`) **and** either `auto_merge_when_green` is `true` **or** the Jira issue `$TASK_KEY` has the `auto-merge` label. Otherwise (e.g. a plain `knesset-data` → `dev` PR with no `auto-merge` label, or any PR into `master`) **do nothing here** — Roi reviews and merges manually.
+   Proceed if the PR's base equals the repo's `base_branch` **and** either `auto_merge_when_green` is `true` **or** the Jira issue `$TASK_KEY` has the `auto-merge` label. This now includes a `no_ci` repo whose `base_branch` is `master` (e.g. `italy-trip`) — a clean review there merges to the **live** app, so audit the diff accordingly. Otherwise (a repo with no `auto_merge_when_green` and no `auto-merge` label — e.g. a plain `knesset-data` → `master` PR) **do nothing here** — Roi reviews and merges manually.
 
    **Sibling-PR gate (do NOT auto-approve a front PR while a paired Drupal PR awaits manual review):** if this same Jira issue `$TASK_KEY` also produced a PR in a repo that is **not** auto-merge (e.g. `knesset-data` Drupal, reviewed manually by Roi), then **do not add `reviewed-ok`** to the front PR — even if it's clean. A front change paired with backend work must not merge ahead of Roi's manual review of the backend. Check for sibling PRs (e.g. `gh pr list --repo roikedem/knesset-data --search "$TASK_KEY" --state open`); if a manual-review sibling PR is still open, add the label **`reviewed-pending-sibling`** to the front PR (NOT `reviewed-ok`) and note in the Jira comment that it's held pending the backend PR. **No human re-run needed:** `poll-github.sh` auto-promotes `reviewed-pending-sibling` → `reviewed-ok` and merges the front PR once no sibling PR for `$TASK_KEY` remains open (i.e. after Roi merges the Drupal PR).
 
@@ -461,7 +461,7 @@ A PR is auto-merge-eligible two ways: **(a)** the repo has `auto_merge_when_gree
      ```bash
      gh pr edit "$TASK_PR_NUMBER" --repo {repo} --add-label "reviewed-ok"
      ```
-     The poller merges it on the next cycle once Vercel is green.
+     The poller merges it on the next cycle once eligible (Vercel green for a CI-gated repo; immediately for a `no_ci` repo).
    - **Findings found:** do **not** add the label. Either fix them yourself (PR Review → C, then re-review) or, for a risky/uncertain change, raise the block:
      ```bash
      gh pr edit "$TASK_PR_NUMBER" --repo {repo} --add-label "danger"
@@ -470,9 +470,9 @@ A PR is auto-merge-eligible two ways: **(a)** the repo has `auto_merge_when_gree
    - If you later push a fix to a PR that addresses your own findings, re-review before re-adding `reviewed-ok`.
 
 What this means for you:
-- After opening a `dev`-targeted PR, run the review-and-approve step. Do not block waiting for the Vercel build — once you've added `reviewed-ok`, the poller merges within a few minutes of the build going green. The merge later surfaces as a `github_pr_merged` task → step E.
+- After opening an auto-merge-eligible PR, run the review-and-approve step. Do not block waiting for a build — once you've added `reviewed-ok`, the poller merges on the next cycle (after the build goes green for a CI-gated repo; immediately for a `no_ci` repo). The merge later surfaces as a `github_pr_merged` task → step E.
 - If a human leaves comments, address them (PR Review → C) and push; re-review and re-apply `reviewed-ok` once clean.
-- **Never** open or merge a PR into a production/default branch (e.g. `master`) on the pipeline's own initiative. `dev` → `master` promotion is Roi's call.
+- **Never** open or merge a PR into a branch other than the repo's configured `base_branch`. Merging into `master`/`dev` is allowed **only** when that repo's `repos[]` entry sets `auto_merge_when_green: true` and the PR targets its own `base_branch` (e.g. `italy-trip` → `master`). For every other repo, production/default branches are hands-off — Roi merges.
 
 > One-time setup per auto-merge repo: the `reviewed-ok` and `danger` labels must exist. `gh label create reviewed-ok --repo {repo} --color 0E8A16 --description "Pipeline review passed — eligible for auto-merge" 2>/dev/null` (and `danger --color B60205`). `gh pr edit --add-label` also creates a missing label on some gh versions, but create them explicitly to be safe.
 

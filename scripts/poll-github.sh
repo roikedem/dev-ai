@@ -196,15 +196,18 @@ poll_repo() {
     # review-approved and unblocked. Two ways a PR becomes auto-merge-eligible:
     #   (a) repo-level: .repos[].auto_merge_when_green == true  (CI-gated — the
     #       'Vercel' commit status must be green; used by deploying repos like
-    #       knesset-front).
+    #       knesset-front). If that repo also sets .no_ci == true (a repo with no
+    #       CI whose base_branch is its live branch, e.g. italy-trip -> master),
+    #       the commit-status gate is skipped and review-approval alone merges it.
     #   (b) per-issue: the linked Jira issue carries the "auto-merge" label
     #       (case-insensitive). This works even in repos that normally don't
     #       auto-merge (e.g. the Drupal knesset-data repo, which has no CI) — so
     #       CI-green is NOT required on this path, only review approval.
     # Either way the merge target must be the repo's base_branch (always dev for
     # these), and review still gates it. Promotion dev->master is never touched.
-    local REPO_AUTO_MERGE BASE_BRANCH
+    local REPO_AUTO_MERGE REPO_NO_CI BASE_BRANCH
     REPO_AUTO_MERGE=$(jq -r --arg r "$REPO" '.repos[] | select(.github==$r) | .auto_merge_when_green // false' "$CONFIG")
+    REPO_NO_CI=$(jq -r --arg r "$REPO" '.repos[] | select(.github==$r) | .no_ci // false' "$CONFIG")
     BASE_BRANCH=$(jq -r --arg r "$REPO" '.repos[] | select(.github==$r) | .base_branch // empty' "$CONFIG")
     if [ -n "$BASE_BRANCH" ]; then
         while IFS= read -r PR_NUM; do
@@ -240,10 +243,10 @@ poll_repo() {
             STATUS_JSON=$(gh api "repos/$REPO/commits/$HEAD_SHA/status" 2>/dev/null)
             STATE=$(echo "$STATUS_JSON" | jq -r '.state')
             NSTAT=$(echo "$STATUS_JSON" | jq -r '.total_count')
-            if [ "$REPO_AUTO_MERGE" = "true" ]; then
+            if [ "$REPO_AUTO_MERGE" = "true" ] && [ "$REPO_NO_CI" != "true" ]; then
                 if [ "$STATE" = "success" ] && [ "${NSTAT:-0}" -ge 1 ]; then CI_OK=1; else CI_OK=0; fi
             else
-                CI_OK=1  # issue-label path: no CI requirement
+                CI_OK=1  # no_ci repo flag or issue-label path: no CI requirement (review still gates)
             fi
 
             # Review gates merge: require the review stage's approval label AND no
