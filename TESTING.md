@@ -101,7 +101,7 @@ Using the `playwright` MCP: navigate to the login page (`{local_urls.frontend}/l
 Write `$TASK_CONTEXT_DIRECTORY/testplan.txt` as numbered **executable** steps: which user/role to log in as, which URL, what to click/type, and the **expected on-screen result** per step. Example:
 `1. Log in as tester-XXX@roikedem.com. 2. Open /dashboard/assignments. 3. Click "Add member". 4. Expect: dialog shows email+name+permissions fields. 5. Submit → expect new member appears in the list.`
 
-Post the testplan as a Jira comment (`mcp__atlassian__addCommentToJiraIssue`).
+Post the testplan as a Jira comment (`jira.sh comment <KEY> "…"`).
 
 ## 6. Run the test plan in the real browser
 
@@ -127,8 +127,8 @@ Maintain a running log in `$TASK_CONTEXT_DIRECTORY/test-log.md` (plain markdown 
 Do NOT attach an html file (Jira can't render it usefully). Instead post a **single Jira comment that embeds the screenshots inline**, so the whole test reads in-issue:
 
 1. Upload each screenshot as an attachment to the issue (this is what makes inline embedding possible — Jira embeds by filename):
-   `POST /rest/api/3/issue/$TASK_KEY/attachments` via `mcp__atlassian__fetch`, `multipart/form-data`, header `X-Atlassian-Token: no-check` — one call per `.png`.
-2. Post one comment (`mcp__atlassian__addCommentToJiraIssue`) structured as Before → each step → After, with each image embedded inline right after its description. Embed syntax depends on the comment format:
+   `jira.sh attach $TASK_KEY <file.png>` — one call per `.png`.
+2. Post one comment (`jira.sh comment <KEY> "…"`) structured as Before → each step → After, with each image embedded inline right after its description. Embed syntax depends on the comment format:
    - **Wiki markup:** `!before.png!`, `!step-1.png!`, `!after.png!` (use `!name.png|width=600!` to size).
    - **ADF / markdown:** reference the uploaded media by the same filename so it renders inline, not as a bare link.
    Each step line: `*Step N (HH:MM:SS):* <description> — expected … / observed … — PASS`, then the image on the next line. End with a short "all steps passed" summary.

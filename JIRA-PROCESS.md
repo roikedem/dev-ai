@@ -3,6 +3,21 @@
 > **Configuration:** Project-specific values are defined in `.jira-process.json` in the project directory.
 > Read that file at the start of each session to resolve `{placeholders}` below.
 
+> **Jira access = REST, not MCP.** All Jira reads and writes go through the helper
+> `~/projects/dev-ai/scripts/jira.sh`, which uses the static API token in
+> `~/.config/atlassian-api-token`. **Do not use the `mcp__atlassian__*` tools** — that
+> connector needs an interactive OAuth flow that does not exist in the headless cron
+> worker, so it silently blocks the task (this is exactly what stalled TRIP-1 on
+> 2026-07-17). The helper is deterministic and works the same in every session:
+> ```bash
+> jira.sh get        <KEY>               # summary + status + description + comments
+> jira.sh transition <KEY> "In Progress" # move by target status name
+> jira.sh comment    <KEY> "text…"       # add a comment
+> jira.sh attach     <KEY> <file>        # upload an attachment
+> jira.sh jql        "project=… AND …"   # search
+> ```
+> If a call fails (network/auth), fix it and retry — never fall back to the MCP or fabricate progress.
+
 ## Entry Point
 
 When invoked from cron or manually without context, start here:
@@ -103,7 +118,7 @@ The issue key is provided by the queue (Entry Point step 2 — task type `jira_i
 
 Fetch the full issue using the key from the queue item:
 
-**Tool:** `mcp__atlassian__getJiraIssue` with `cloudId: {jira_cloud_id}` and the issue key.
+**Command:** `jira.sh get <KEY>` (reads summary, status, full description, and comments).
 
 Before starting, check whether `~/dev-context/` has a file for this issue with `Status: waiting for user` — if so, only resume if the queue item is a `jira_comment` indicating new activity. Otherwise skip this task and pop the next queue item.
 
@@ -128,7 +143,7 @@ If the issue involves any of the following, **backup the database before startin
 - Fetch the full issue details including description, comments, and any linked issues.
 - Understand the acceptance criteria and scope before touching any code.
 
-**Tool:** `mcp__atlassian__getJiraIssue` with `cloudId: {jira_cloud_id}`
+**Command:** `jira.sh get <KEY>`
 
 ---
 
@@ -136,7 +151,7 @@ If the issue involves any of the following, **backup the database before startin
 
 - Transition the issue status to **In Progress** before starting work.
 
-**Tool:** `mcp__atlassian__getTransitionsForJiraIssue` to get the transition ID, then `mcp__atlassian__transitionJiraIssue`.
+**Command:** `jira.sh transition <KEY> "In Progress"`
 
 ---
 
@@ -287,7 +302,7 @@ gh pr create --base <base_branch> --title "{jira_project_key}-XX: brief descript
 
 **Transition the Jira issue to "Review":**
 
-**Tool:** `mcp__atlassian__getTransitionsForJiraIssue` to find the "Review" transition ID, then `mcp__atlassian__transitionJiraIssue`.
+**Command:** `jira.sh transition <KEY> "Review"`
 
 **Update the `~/dev-context` file:**
 
@@ -313,7 +328,7 @@ gh pr create --base <base_branch> --title "{jira_project_key}-XX: brief descript
   - A brief summary of what was done.
   - Any follow-up notes or caveats.
 
-**Tool:** `mcp__atlassian__addCommentToJiraIssue` with `cloudId: {jira_cloud_id}`
+**Command:** `jira.sh comment <KEY> "…"`
 
 ---
 
@@ -425,7 +440,7 @@ For each PR with actionable comments:
 
 9. **Transition the Jira issue back to "Review":**
 
-   **Tool:** `mcp__atlassian__getTransitionsForJiraIssue` then `mcp__atlassian__transitionJiraIssue`.
+   **Command:** `jira.sh transition <KEY> "Review"`
 
 10. **Update the `~/dev-context` file:**
 
@@ -458,19 +473,19 @@ For each file in `~/dev-context/` with `Status: waiting for PR review`:
 
 2. **If merged** — transition the Jira issue to **Done**:
 
-   **Tool:** `mcp__atlassian__getTransitionsForJiraIssue` to find the "Done" transition ID, then `mcp__atlassian__transitionJiraIssue`.
+   **Command:** `jira.sh transition <KEY> "Done"`
 
 3. **Post before/after screenshots as a Jira comment:**
 
    - Upload both images as attachments to the issue:
+     ```bash
+     jira.sh attach <KEY> docs/screenshots/{jira_project_key}-XX/before.png
+     jira.sh attach <KEY> docs/screenshots/{jira_project_key}-XX/after.png
      ```
-     POST /rest/api/3/issue/{issueKey}/attachments
-     ```
-     Use `mcp__atlassian__fetch` with `multipart/form-data` for each file (`before.png`, `after.png`).
 
    - Post a comment referencing them:
 
-     **Tool:** `mcp__atlassian__addCommentToJiraIssue` with body:
+     **Command:** `jira.sh comment <KEY>` with body:
      ```
      *Before / After*
 
@@ -523,7 +538,7 @@ fi
 
 When asked to generate a report of completed issues:
 
-1. Fetch all Done issues via `mcp__atlassian__searchJiraIssuesUsingJql` with `status=Done`.
+1. Fetch all Done issues via `jira.sh jql "project={jira_project_key} AND status=Done"`.
 
 2. Build a JSON array of issue data:
    ```json
@@ -550,16 +565,16 @@ When asked to generate a report of completed issues:
 | Step | Action | Tool / Command |
 |------|--------|----------------|
 | 0 | Backup DB (if schema/entity changes) | `{backup_command}` |
-| 1 | Read issue | `mcp__atlassian__getJiraIssue` |
-| 2 | Move to In Progress | `mcp__atlassian__transitionJiraIssue` |
+| 1 | Read issue | `jira.sh get <KEY>` |
+| 2 | Move to In Progress | `jira.sh transition <KEY> "In Progress"` |
 | 3 | Create branch + before screenshot | `git checkout -b {jira_project_key}-XX-...` |
-| 3b | Blocked → comment once + mark waiting | `mcp__atlassian__addCommentToJiraIssue` |
+| 3b | Blocked → comment once + mark waiting | `jira.sh comment <KEY> "…"` |
 | 4 | Solve | edit code |
 | 5 | Test + after screenshot | `ddev drush cr` / `npm run build` / browser |
 | 6 | Commit | `git commit -m "{jira_project_key}-XX: ..."` |
-| 7 | PR + move Jira to Review | `gh pr create` + `mcp__atlassian__transitionJiraIssue` |
-| 8 | Comment on issue | `mcp__atlassian__addCommentToJiraIssue` |
+| 7 | PR + move Jira to Review | `gh pr create` + `jira.sh transition <KEY> "Review"` |
+| 8 | Comment on issue | `jira.sh comment <KEY> "…"` |
 | 9 | Return to default branch + pull | `git checkout {default_branch} && git pull` |
 | 10 | Restore DB (if schema changed) | `{restore_command}` |
 | 11 | Open PR in Chrome | `powershell.exe -c "Start-Process '<PR URL>'"` |
-| PR loop E | PR merged → Done + screenshots + archive ~/dev-context file | `mcp__atlassian__transitionJiraIssue` |
+| PR loop E | PR merged → Done + screenshots + archive ~/dev-context file | `jira.sh transition <KEY> "Done"` |

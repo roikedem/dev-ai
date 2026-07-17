@@ -2,7 +2,7 @@
 
 When asked to generate a report of completed issues:
 
-1. Fetch all Done issues via `mcp__atlassian__searchJiraIssuesUsingJql` with `status=Done`.
+1. Fetch all Done issues via `jira.sh jql "project={jira_project_key} AND status=Done"`.
 
 2. Build a JSON array of issue data:
    ```json

@@ -101,7 +101,7 @@ If the issue involves any of the following, **backup the database before startin
 - Fetch the full issue details including description, comments, and any linked issues.
 - Understand the acceptance criteria and scope before touching any code.
 
-**Tool:** `mcp__atlassian__getJiraIssue` with `cloudId: {jira_cloud_id}`
+**Command:** `jira.sh get <KEY>`
 
 ### Choosing which repo(s) to solve in
 
@@ -130,7 +130,7 @@ If yes to the above, solve it **front-only** by joining on the cached data — d
 
 - Transition the issue status to **In Progress** before starting work.
 
-**Tool:** `mcp__atlassian__getTransitionsForJiraIssue` to get the transition ID, then `mcp__atlassian__transitionJiraIssue`.
+**Command:** `jira.sh transition <KEY> "In Progress"`
 
 Log: `Transitioned Jira $TASK_KEY to In Progress`
 
@@ -254,17 +254,7 @@ gh pr create --base <base_branch> --title "$TASK_KEY: brief description" --body 
 
 **Link the PR to the Jira issue** so it appears under the Development panel:
 
-**Tool:** `mcp__atlassian__createIssueLink` — or use `mcp__atlassian__fetch` to POST a remote link:
-```
-POST /rest/api/3/issue/$TASK_KEY/remotelink
-{
-  "object": {
-    "url": "<PR URL>",
-    "title": "PR: <PR title>",
-    "icon": { "url16x16": "https://github.com/favicon.ico", "title": "GitHub" }
-  }
-}
-```
+**Command:** `jira.sh link $TASK_KEY "<PR URL>" "PR: <PR title>"`
 
 **Leave the Jira issue in "In Progress" — do NOT move it to "Review" here.**
 
@@ -296,7 +286,7 @@ Log: `Opened PR for $TASK_KEY (Jira stays In Progress until merge): <PR URL>`
   - A brief summary of what was done.
   - Any follow-up notes or caveats.
 
-**Tool:** `mcp__atlassian__addCommentToJiraIssue` with `cloudId: {jira_cloud_id}`
+**Command:** `jira.sh comment <KEY> "…"`
 
 ---
 
@@ -414,7 +404,7 @@ git checkout {default_branch} && git pull
 
 The pipeline never sets a Jira issue to "Done"/"Completed" — Roi is the only one who does. When the PR merges, the issue belongs in **"Review"** (= shipped, ready for Roi's own review).
 
-1. **Ensure Jira is in "Review"** — `poll-github.sh` already transitions it to "Review" automatically on merge, so normally it is already there. Only if it is somehow still "In Progress", transition it: `mcp__atlassian__getTransitionsForJiraIssue` → `mcp__atlassian__transitionJiraIssue`. Never set Done/Completed.
+1. **Ensure Jira is in "Review"** — `poll-github.sh` already transitions it to "Review" automatically on merge, so normally it is already there. Only if it is somehow still "In Progress", transition it: `jira.sh transition <KEY> "Review"`. Never set Done/Completed.
 
 2. **Post before/after screenshots as a Jira comment:**
 
@@ -422,11 +412,14 @@ The pipeline never sets a Jira issue to "Done"/"Completed" — Roi is the only o
      ```
      POST /rest/api/3/issue/$TASK_KEY/attachments
      ```
-     Use `mcp__atlassian__fetch` with `multipart/form-data` for each file (`$TASK_CONTEXT_DIRECTORY/before.png`, `$TASK_CONTEXT_DIRECTORY/after.png`).
+     ```bash
+     jira.sh attach <KEY> "$TASK_CONTEXT_DIRECTORY/before.png"
+     jira.sh attach <KEY> "$TASK_CONTEXT_DIRECTORY/after.png"
+     ```
 
    - Post a comment referencing them:
 
-     **Tool:** `mcp__atlassian__addCommentToJiraIssue` with body:
+     **Command:** `jira.sh comment <KEY>` with body:
      ```
      *Before / After*
 
@@ -497,11 +490,11 @@ was never tested and never merged. Do not repeat that.
 
 | # | Check | How to verify |
 |---|---|---|
-| 1 | Jira status is **"In Progress"** (the pipeline never sets Review at PR-open, nor Done — `poll-github.sh` moves it to "Review" on merge; Roi moves it to Done) | `mcp__atlassian__getJiraIssue` → `fields.status.name` |
+| 1 | Jira status is **"In Progress"** (the pipeline never sets Review at PR-open, nor Done — `poll-github.sh` moves it to "Review" on merge; Roi moves it to Done) | `jira.sh get <KEY>` → Status line |
 | 2 | PR exists and is open | `gh pr view $TASK_PR_NUMBER --repo {repo}` |
-| 3 | PR is linked in Jira Development panel | `mcp__atlassian__getJiraIssueRemoteIssueLinks` |
-| 4 | Jira comment posted with PR link | `mcp__atlassian__getJiraIssue` → `fields.comment` |
-| 5 | **Testing actually ran** (for any UI/behaviour task): test artifacts exist in `$TASK_CONTEXT_DIRECTORY` (≥1 screenshot + `test-log.md`) AND a Jira **test comment with inline screenshots** was posted per `TESTING.md` §7 | `ls "$TASK_CONTEXT_DIRECTORY"/*.png "$TASK_CONTEXT_DIRECTORY"/test-log.md` and `mcp__atlassian__getJiraIssue` → `fields.comment` |
+| 3 | PR is linked in Jira Development panel | `jira.sh links <KEY>` |
+| 4 | Jira comment posted with PR link | `jira.sh get <KEY>` → Comments |
+| 5 | **Testing actually ran** (for any UI/behaviour task): test artifacts exist in `$TASK_CONTEXT_DIRECTORY` (≥1 screenshot + `test-log.md`) AND a Jira **test comment with inline screenshots** was posted per `TESTING.md` §7 | `ls "$TASK_CONTEXT_DIRECTORY"/*.png "$TASK_CONTEXT_DIRECTORY"/test-log.md` and `jira.sh get <KEY>` → Comments |
 | 6 | **PR is approved for merge**: it carries the **`reviewed-ok`** label (review/approve step §F ran clean), OR **`reviewed-pending-sibling`** (paired backend PR awaits Roi), OR the session is genuinely **BLOCKED** and that block is documented in a Jira comment + `$TASK_CONTEXT_FILE` | `gh pr view $TASK_PR_NUMBER --repo {repo} --json labels` |
 | 7 | `$TASK_CONTEXT_FILE` status is `waiting for PR review` | `cat "$TASK_CONTEXT_FILE"` |
 
