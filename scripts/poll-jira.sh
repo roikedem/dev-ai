@@ -49,7 +49,7 @@ JQL="project=$PROJECT_KEY AND assignee = currentUser() AND status in ('To Do', '
 ENCODED_JQL=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$JQL")
 
 RESPONSE=$(curl -sf -u "$EMAIL:$API_TOKEN" -H "Accept: application/json" \
-    "$BASE_URL/search/jql?jql=$ENCODED_JQL&maxResults=20&fields=summary,status,assignee,comment")
+    "$BASE_URL/search/jql?jql=$ENCODED_JQL&maxResults=20&fields=summary,status,assignee,comment,issuelinks")
 
 if [ $? -ne 0 ]; then
     log "Jira API request failed"
@@ -72,6 +72,25 @@ while IFS= read -r issue; do
     ISSUE_ASSIGNEE=$(echo "$issue" | jq -r '.fields.assignee.accountId // ""')
     if [ "$ISSUE_ASSIGNEE" != "$SELF_ID" ]; then
         log "SKIP $KEY: assignee '$ISSUE_ASSIGNEE' is not the agent — not queuing"
+        continue
+    fi
+
+    # Dependency gate: never queue an issue whose blockers aren't finished yet.
+    # Jira semantics (verified against the API): on issue X, a "Blocks" link that
+    # carries `outwardIssue` means *that* issue blocks X; `inwardIssue` means X
+    # blocks it. A blocker counts as finished once it reaches Review or Done —
+    # this pipeline sets Review on merge (poll-github), and Roi moves it to Done.
+    # Without this, every assigned issue is queued at once and dependent work can
+    # be built against a base branch that lacks its prerequisite.
+    BLOCKERS=$(echo "$issue" | jq -r '
+        [ .fields.issuelinks[]?
+          | select(.type.name == "Blocks")
+          | select(has("outwardIssue"))
+          | .outwardIssue
+          | select((.fields.status.name == "Review" or .fields.status.name == "Done") | not)
+          | .key ] | join(",")')
+    if [ -n "$BLOCKERS" ]; then
+        log "SKIP $KEY: blocked by $BLOCKERS — not queuing"
         continue
     fi
 

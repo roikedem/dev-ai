@@ -78,6 +78,7 @@ echo "*/5 * * * * $(pwd)/scripts/claude-jira-cron.sh $PROJECT"
 
 Architecture:
 - **`poll-jira.sh`** and **`poll-github.sh`** run every 5 min, call Jira/GitHub APIs directly (no Claude), and push new tasks to `.claude-queue.jsonl` in the project dir.
+- **Dependency gate:** `poll-jira.sh` never queues an issue that has an unfinished **"is blocked by"** link. On issue X, a `Blocks` link carrying `outwardIssue` is X's *blocker*; a blocker counts as finished once it reaches **Review or Done** (this pipeline sets Review on merge). So you can assign a whole dependency chain at once and the poller releases each issue only when its prerequisite has merged — no manual promotion.
 - **`claude-jira-cron.sh`** runs every 5 min but only starts Claude when the queue is non-empty.
 
 Ensure `gh` is authenticated as the Claude agent account:
