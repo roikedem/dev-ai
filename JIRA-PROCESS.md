@@ -64,6 +64,7 @@ grep -qxF '.claude-jira-seen.json'     .gitignore || echo '.claude-jira-seen.jso
 grep -qxF '.claude-gh-seen.json'       .gitignore || echo '.claude-gh-seen.json'       >> .gitignore
 grep -qxF '.claude-queue.lock'         .gitignore || echo '.claude-queue.lock'         >> .gitignore
 grep -qxF '.jira-in-progress.jsonl'    .gitignore || echo '.jira-in-progress.jsonl'    >> .gitignore
+grep -qxF '.claude-usage-limit'        .gitignore || echo '.claude-usage-limit'        >> .gitignore
 
 # 2. Make all scripts executable (run from dev-ai)
 cd ~/projects/dev-ai
@@ -80,6 +81,7 @@ Architecture:
 - **`poll-jira.sh`** and **`poll-github.sh`** run every 5 min, call Jira/GitHub APIs directly (no Claude), and push new tasks to `.claude-queue.jsonl` in the project dir.
 - **Dependency gate:** `poll-jira.sh` never queues an issue that has an unfinished **"is blocked by"** link. On issue X, a `Blocks` link carrying `outwardIssue` is X's *blocker*; a blocker counts as finished once it reaches **Review or Done** (this pipeline sets Review on merge). So you can assign a whole dependency chain at once and the poller releases each issue only when its prerequisite has merged — no manual promotion.
 - **`claude-jira-cron.sh`** runs every 5 min but only starts Claude when the queue is non-empty.
+- **Usage-limit pause:** if a run fails because Claude's 5-hour window is exhausted, the task is **requeued (never marked done)**, an epoch "retry after" is written to `.claude-usage-limit` in the project dir, and further runs exit silently until then (no 2-minute thrash, no log spam). When it expires the pause clears and the requeued task resumes — the `~/dev-context` file carries the partial state, so work continues where it stopped instead of restarting.
 
 Ensure `gh` is authenticated as the Claude agent account:
 

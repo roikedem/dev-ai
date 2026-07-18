@@ -44,6 +44,24 @@ if ! flock -n 9; then
     exit 0
 fi
 
+# --- Usage-limit pause -----------------------------------------------------
+# When Claude's 5-hour usage window is exhausted every launch fails instantly.
+# Cron fires every 2 min, so without this the project would thrash for hours.
+# A previous run that hit the limit wrote an epoch "retry after" here; stay
+# silent until then (no log spam), then resume. The task was requeued and the
+# ~/dev-context file holds the partial state, so work continues where it
+# stopped rather than restarting.
+LIMIT_FILE="$REPO_ROOT/.claude-usage-limit"
+if [ -f "$LIMIT_FILE" ]; then
+    RETRY_AT=$(cat "$LIMIT_FILE" 2>/dev/null || echo 0)
+    case "$RETRY_AT" in ''|*[!0-9]*) RETRY_AT=0 ;; esac
+    if [ "$(date +%s)" -lt "$RETRY_AT" ]; then
+        exit 0
+    fi
+    rm -f "$LIMIT_FILE"
+    log "usage-limit pause expired — resuming"
+fi
+
 # Recover any in_progress tasks left by a previous crash on this host
 # (only reached if the lock was NOT held, meaning no Claude is running)
 RECOVERED=$("$QUEUE_SH" recover "$REPO_ROOT")
@@ -177,6 +195,30 @@ if [ -n "$USAGE_JSON" ]; then
     fi
 fi
 log "claude finished (exit $EXIT)"
+
+# --- Detect a usage-limit failure ------------------------------------------
+# Only inspected when the run actually FAILED — the model's own prose often
+# mentions rate limits (e.g. discussing a Wanderlog import), and matching that
+# on a successful run would pause the pipeline for no reason.
+LIMIT_UNTIL=""
+if [ $EXIT -ne 0 ] || echo "$CLAUDE_OUTPUT" | grep -q '"is_error":[[:space:]]*true'; then
+    LIMIT_UNTIL=$(echo "$CLAUDE_OUTPUT" | python3 -c '
+import sys, re, time
+text = sys.stdin.read()
+if not re.search(r"usage limit|rate limit|limit reached|too many requests|\b429\b|quota exceeded", text, re.I):
+    raise SystemExit(0)
+m = re.search(r"reset[^0-9]{0,25}(\d{10})", text)          # explicit epoch reset, if given
+print(int(m.group(1)) + 60 if m else int(time.time()) + 1200)   # else re-probe in 20 min
+' 2>/dev/null)
+fi
+
+if [ -n "$LIMIT_UNTIL" ]; then
+    # Never mark the task done — it did not run. Requeue and pause the project.
+    [ -n "$TASK_ID" ] && "$QUEUE_SH" requeue "$REPO_ROOT" "$TASK_ID"
+    echo "$LIMIT_UNTIL" > "$LIMIT_FILE"
+    log "usage limit hit — task requeued, paused until $(date -d "@$LIMIT_UNTIL" '+%Y-%m-%d %H:%M' 2>/dev/null || echo "$LIMIT_UNTIL")"
+    exit 0
+fi
 
 if [ $EXIT -eq 0 ]; then
     [ -n "$TASK_ID" ] && "$QUEUE_SH" done "$REPO_ROOT" "$TASK_ID"
