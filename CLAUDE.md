@@ -14,7 +14,9 @@ Three cron jobs run every 5 minutes per project:
 2. **`poll-github.sh <project-dir>`** — calls GitHub API, pushes new PR events to the Neon-backed queue
 3. **`claude-jira-cron.sh <project-dir>`** — if queue is non-empty and `MAIN_SWITCH=ON`, pops one task, exports it as env vars, and invokes Claude with `--dangerously-skip-permissions --output-format json -p "Follow the Entry Point section in .../PROCESS-TASK.md."`
 
-The queue lives in a shared Neon PostgreSQL `tasks` table, keyed by `(project_dir, dedup_key)`. Connection params come from `~/.config/dev-ai-neon-connection-params` (sourced as `PG*` env vars). All queue ops go through `scripts/queue.sh`.
+The queue lives in a shared PostgreSQL `tasks` table, keyed by `(project_dir, dedup_key)`. Connection params come from `~/.config/dev-ai-neon-connection-params` (sourced as `PG*` env vars) — the filename is historical; that file points at whatever the current queue database is. Schema: `scripts/schema.sql`. All queue ops go through `scripts/queue.sh`.
+
+**Current queue DB (since 20.7.2026): local Postgres**, docker container `dev-ai-db` on `127.0.0.1:5433`, volume `dev-ai-db-data`. This is a **stopgap**. Neon's free tier meters compute-hours and our 2-minute polling never idles, so it was structurally ~4× over quota and refused every connection — an 18h silent outage. The old Neon params are kept at `~/.config/dev-ai-neon-connection-params.neon-backup`. A local DB is unreachable from Vercel, so `web/` (dev-ai-tasks.vercel.app) stays down until the queue moves to a hosted database.
 
 Claude processes **one task per session**. After finishing, it exits and the next cron tick picks up the next queue item.
 
