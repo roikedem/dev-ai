@@ -125,14 +125,21 @@ def issue_has_pr(repos, key):
     return None
 
 
+class QueueDBError(RuntimeError):
+    """The queue database is unreachable — findings would be meaningless."""
+
+
 def psql(query):
     if not NEON.exists():
-        return []
+        raise QueueDBError(f"missing connection params: {NEON}")
     # source connection params then run psql
     cmd = f'set -a; . "{NEON}"; set +a; psql -t -A -F "|" -c "{query}"'
     r = sh(cmd)
     if r.returncode != 0:
-        return []
+        # Previously this returned [] — so a total outage produced zero rows,
+        # zero findings, and a cheerful "clean". Reconcile was blind and said so
+        # in the affirmative. Never again: this aborts the whole run loudly.
+        raise QueueDBError((r.stderr or r.stdout or "").strip()[:300])
     return [line.split("|") for line in r.stdout.strip().splitlines() if line.strip()]
 
 
@@ -372,6 +379,16 @@ def main():
     for proj in projects:
         try:
             check_project(proj)
+        except QueueDBError as e:
+            # Not a per-project finding — the pipeline itself is down. Abort the
+            # run rather than reporting on projects we cannot actually inspect.
+            msg = (f"QUEUE DB UNREACHABLE — reconcile aborted, pipeline is DOWN "
+                   f"and its state is UNKNOWN (not clean). psql: {e}")
+            log(msg)
+            if not DRY:
+                sh(f'''bash "{HOME}/projects/team/scripts/log.sh" '''
+                   f'''"Reconcile" ERROR "{str(msg).replace('"', "'")}"''')
+            return 1
         except Exception as e:
             findings.append(("FLAG", Path(proj["dir"]).name, f"reconcile error: {e}"))
 

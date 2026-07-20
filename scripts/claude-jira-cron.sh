@@ -71,7 +71,16 @@ if [ -n "$RECOVERED" ]; then
     done <<< "$RECOVERED"
 fi
 
-QUEUE_COUNT=$("$QUEUE_SH" count "$REPO_ROOT" 2>/dev/null || echo 0)
+# queue.sh exits 2 when the database itself is unreachable. That must NOT be
+# read as "empty queue" — that misreading is exactly what made the 20.7 outage
+# silent: every cron tick logged "queue empty" and exited 0 while nothing ran.
+QUEUE_COUNT=$("$QUEUE_SH" count "$REPO_ROOT" 2>/dev/null)
+QUEUE_RC=$?
+if [ "$QUEUE_RC" -ne 0 ]; then
+    log "ABORT — queue database unreachable (queue.sh exit $QUEUE_RC). Pipeline is DOWN, not idle."
+    exit 1
+fi
+case "$QUEUE_COUNT" in ''|*[!0-9]*) QUEUE_COUNT=0 ;; esac
 if [ "$QUEUE_COUNT" -eq 0 ]; then
     log "queue empty — skipping claude"
     exit 0

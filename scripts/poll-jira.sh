@@ -45,11 +45,11 @@ COMMENTS_NEW=0
 # --- Fetch open issues assigned to the agent itself ---
 # assignee = currentUser() resolves server-side to the authenticated account, so
 # this is impossible to misconfigure into matching someone else's tasks.
-JQL="project=$PROJECT_KEY AND assignee = currentUser() AND status in ('To Do', 'In Progress') ORDER BY updated DESC"
+JQL="project=$PROJECT_KEY AND assignee = currentUser() AND status in ('To Do', 'In Progress') ORDER BY priority ASC, updated DESC"
 ENCODED_JQL=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$JQL")
 
 RESPONSE=$(curl -sf -u "$EMAIL:$API_TOKEN" -H "Accept: application/json" \
-    "$BASE_URL/search/jql?jql=$ENCODED_JQL&maxResults=20&fields=summary,status,assignee,comment,issuelinks")
+    "$BASE_URL/search/jql?jql=$ENCODED_JQL&maxResults=20&fields=summary,status,assignee,comment,issuelinks,priority")
 
 if [ $? -ne 0 ]; then
     log "Jira API request failed"
@@ -94,16 +94,26 @@ while IFS= read -r issue; do
         continue
     fi
 
+    # Jira's priority ids are already a rank: 1=Highest … 5=Lowest. Carried on the
+    # task so the queue can pop by ticket priority instead of arrival order.
+    # Unset priority defaults to Medium so an unprioritised ticket never jumps the
+    # line ahead of an explicitly High one, nor sinks below an explicit Low one.
+    PRIORITY=$(echo "$issue" | jq -r '.fields.priority.name // "Medium"')
+    PRIORITY_RANK=$(echo "$issue" | jq -r '.fields.priority.id // "3"')
+    case "$PRIORITY_RANK" in ''|*[!0-9]*) PRIORITY_RANK=3 ;; esac
+
     TASK=$(jq -nc \
         --arg type "jira_issue" \
         --arg key "$KEY" \
         --arg summary "$SUMMARY" \
         --arg status "$STATUS" \
+        --arg priority "$PRIORITY" \
+        --argjson priority_rank "$PRIORITY_RANK" \
         --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        '{type:$type, key:$key, summary:$summary, status:$status, queued_at:$ts}')
+        '{type:$type, key:$key, summary:$summary, status:$status, priority:$priority, priority_rank:$priority_rank, queued_at:$ts}')
     INSERTED=$("$QUEUE_SH" push "$PROJECT_DIR" "$TASK" "issue:$KEY")
     if [ "$INSERTED" = "1" ]; then
-        log "queued issue $KEY: $SUMMARY"
+        log "queued issue $KEY [$PRIORITY]: $SUMMARY"
         ISSUES_NEW=$((ISSUES_NEW + 1))
     fi
 
@@ -122,8 +132,10 @@ while IFS= read -r issue; do
             --arg comment_id "$COMMENT_ID" \
             --arg author "$COMMENT_AUTHOR" \
             --arg body "$COMMENT_BODY" \
+            --arg priority "$PRIORITY" \
+            --argjson priority_rank "$PRIORITY_RANK" \
             --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            '{type:$type, key:$key, comment_id:$comment_id, author:$author, body:$body, queued_at:$ts}')
+            '{type:$type, key:$key, comment_id:$comment_id, author:$author, body:$body, priority:$priority, priority_rank:$priority_rank, queued_at:$ts}')
         INSERTED=$("$QUEUE_SH" push "$PROJECT_DIR" "$TASK" "comment:$KEY:$COMMENT_ID")
         if [ "$INSERTED" = "1" ]; then
             log "queued comment $COMMENT_ID on $KEY by $COMMENT_AUTHOR"
@@ -134,5 +146,9 @@ while IFS= read -r issue; do
 done <<< "$ISSUES"
 
 TOTAL=$("$QUEUE_SH" count "$PROJECT_DIR")
+if [ $? -ne 0 ]; then
+    log "queue database unreachable — nothing was queued this run (pipeline DOWN, not idle)"
+    exit 1
+fi
 log "polled: $ISSUES_SEEN issues ($ISSUES_NEW new), $COMMENTS_SEEN comments ($COMMENTS_NEW new) — queue=$TOTAL"
 exit 0

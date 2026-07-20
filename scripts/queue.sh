@@ -2,7 +2,7 @@
 # Queue operations backed by Neon PostgreSQL.
 # Usage:
 #   queue.sh push    <project-dir> <json-object> [dedup-key]  — enqueue (no-op if dedup-key already exists)
-#   queue.sh pop     <project-dir>                            — atomically claim oldest queued task; prints JSON with .id added
+#   queue.sh pop     <project-dir>                            — atomically claim the highest-priority queued task (Jira priority rank 1=Highest…5=Lowest, ties broken oldest-first); prints JSON with .id added
 #   queue.sh count   <project-dir>                            — number of queued tasks
 #   queue.sh peek    <project-dir>                            — oldest queued task JSON without changing it
 #   queue.sh done    <project-dir> <task-id>                  — mark task done
@@ -17,6 +17,47 @@ export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:$PATH"
 CONN_PARAMS="$HOME/.config/dev-ai-neon-connection-params"
 [ -f "$CONN_PARAMS" ] || { echo "Missing $CONN_PARAMS" >&2; exit 1; }
 set -a && source "$CONN_PARAMS" && set +a
+
+# --- Fail loudly when the queue database is unreachable ---------------------
+# Every psql call used to swallow its error: a total outage still let poll-jira,
+# poll-github, claude-jira-cron and reconcile all exit 0 and report "clean",
+# so the pipeline was down for 14h on 20.7 with nothing anywhere saying so.
+# Now any psql failure (a) makes queue.sh exit 2 rather than look like an empty
+# queue, and (b) raises an ERROR on the shared team log for the PM/TM to see.
+# The alert is throttled — 4 projects × every 2 min would otherwise flood it.
+FAIL_FLAG=$(mktemp /tmp/queue-fail-XXXXXX)
+trap 'rm -f "$FAIL_FLAG"' EXIT
+
+ALERT_STAMP="$HOME/.cache/dev-ai-queue-db-alert"
+ALERT_THROTTLE=1800   # seconds between team-log alerts
+
+db_alert() {
+    mkdir -p "$(dirname "$ALERT_STAMP")"
+    local now last
+    now=$(date +%s)
+    last=$(stat -c %Y "$ALERT_STAMP" 2>/dev/null || echo 0)
+    [ $((now - last)) -lt "$ALERT_THROTTLE" ] && return 0
+    touch "$ALERT_STAMP"
+    bash "$HOME/projects/team/scripts/log.sh" "Pipeline Queue" ERROR \
+        "QUEUE DB UNREACHABLE — pipeline is DOWN, no task can be queued or popped. psql: $1" 2>/dev/null
+}
+
+# Wrapper shadowing the psql binary, so every call site below is covered.
+# Note the flag is a FILE, not a variable: psql calls sit inside pipelines and
+# therefore run in subshells, where a variable assignment would be discarded.
+psql() {
+    local err rc
+    err=$(mktemp /tmp/queue-err-XXXXXX)
+    command psql "$@" 2>"$err"
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        echo "$rc" > "$FAIL_FLAG"
+        db_alert "$(tr -d '\n' < "$err" | head -c 300)"
+        cat "$err" >&2
+    fi
+    rm -f "$err"
+    return $rc
+}
 
 # Escape a value for SQL single-quoted string literal.
 # Safe because PostgreSQL standard_conforming_strings=on (default): only ' needs doubling.
@@ -69,7 +110,7 @@ case "$OPERATION" in
       WHERE id = (
         SELECT id FROM tasks
         WHERE project_dir='$DIR' AND status='queued'
-        ORDER BY queued_at
+        ORDER BY COALESCE((payload->>'priority_rank')::int, 3), queued_at
         LIMIT 1
         FOR UPDATE SKIP LOCKED
       )
@@ -86,7 +127,7 @@ case "$OPERATION" in
     psql -t -A -c "
       SELECT payload FROM tasks
       WHERE project_dir='$DIR' AND status='queued'
-      ORDER BY queued_at
+      ORDER BY COALESCE((payload->>'priority_rank')::int, 3), queued_at
       LIMIT 1;" | grep '^{'
     ;;
 
@@ -121,3 +162,8 @@ case "$OPERATION" in
     exit 1
     ;;
 esac
+
+# Exit 2 = the database call failed. Distinct from "worked, nothing to report",
+# so callers can tell an outage from an empty queue.
+[ -s "$FAIL_FLAG" ] && exit 2
+exit 0

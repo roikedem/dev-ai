@@ -76,13 +76,13 @@ for cm in c.get("comments",[]):
     KEY="${2:?Usage: jira.sh transition <KEY> <STATUS_NAME>}"
     TARGET="${3:?Usage: jira.sh transition <KEY> <STATUS_NAME>}"
     TID=$(api GET "/issue/$KEY/transitions" \
-      | python3 -c 'import json,sys,os
+      | TARGET="$TARGET" python3 -c 'import json,sys,os
 t=os.environ["TARGET"].strip().lower()
 d=json.load(sys.stdin)
 for tr in d.get("transitions",[]):
     if tr["to"]["name"].strip().lower()==t or tr["name"].strip().lower()==t:
         print(tr["id"]); break
-' TARGET="$TARGET")
+')
     [ -n "$TID" ] || { echo "jira.sh: no transition to '$TARGET' available for $KEY" >&2; exit 2; }
     api POST "/issue/$KEY/transitions" -H "Content-Type: application/json" \
       -d "{\"transition\":{\"id\":\"$TID\"}}"
