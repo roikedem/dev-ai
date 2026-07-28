@@ -116,12 +116,14 @@ def gh(path):
 
 
 def issue_has_pr(repos, key):
-    """Return (state, number) of the most relevant PR for this Jira key, or None."""
+    """Return (state, number, repo, labels) of the most relevant PR for this key, or None."""
     for repo in repos:
         prs = gh(f"search/issues?q=" + urllib.parse.quote(f"repo:{repo} is:pr {key} in:title"))
         if prs and prs.get("items"):
             it = prs["items"][0]
-            return ("MERGED" if it.get("pull_request", {}).get("merged_at") else it["state"].upper(), it["number"], repo)
+            labels = [l["name"] for l in it.get("labels", [])]
+            return ("MERGED" if it.get("pull_request", {}).get("merged_at") else it["state"].upper(),
+                    it["number"], repo, labels)
     return None
 
 
@@ -199,6 +201,20 @@ def check_project(proj):
         # pipeline — set Jira to 'Review' so it surfaces on his board. Auto-merge
         # repos (front) instead requeue so the pipeline finishes its own review.
         manual_review = bool(pr) and pr[0] == "OPEN" and not repo_auto_merge(cfg, pr[2])
+
+        # Already-reviewed open PR: the pipeline has finished its part, so
+        # requeueing cannot help — the blocker is the merge, not the build.
+        # Without this guard the dedup key (which carries a fresh timestamp)
+        # requeues on EVERY run: TRIP-45 burned a pipeline cycle every 30 min
+        # for 14h on 2026-07-28 while its PR sat un-mergeable. Section 2b below
+        # already flags a wedged reviewed-ok PR, so the signal isn't lost.
+        if bool(pr) and pr[0] == "OPEN" and not manual_review and "reviewed-ok" in (pr[3] or []):
+            findings.append(("FLAG", name,
+                f"{key}: PR #{pr[1]} is reviewed-ok but still open and Jira is '{jstatus}' — "
+                f"NOT requeued (re-running the solver cannot merge it). Merge is wedged; "
+                f"check {pr[2]} logs/poll-github.log for the auto-merge error."))
+            continue
+
         if DRY:
             findings.append(("FIX", name,
                 f"{key}: queue 'done' but Jira '{jstatus}' ({pr_desc}) → "

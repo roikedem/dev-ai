@@ -303,12 +303,20 @@ poll_repo() {
                 # Solver authors as roikedem@gmail.com — so the commit landing on
                 # dev has an author Vercel accepts and the preview deploys.
                 local TRIGGER; [ "$ISSUE_AUTO_MERGE" = "true" ] && TRIGGER="jira:auto-merge" || TRIGGER="repo:auto_merge_when_green"
-                if gh pr merge "$PR_NUM" --repo "$REPO" --rebase --delete-branch >/dev/null 2>&1; then
+                # Keep gh's stderr — discarding it cost 14 hours on italy-trip #41
+                # (2026-07-28): the PR was clean, reviewed-ok, CI green, and the
+                # merge failed every 5 minutes for a reason only gh knew
+                # ("This branch can't be rebased" — the branch carried a merge
+                # commit, so GitHub's rebase-merge refused it). The log said only
+                # "FAILED ... mergeable=clean", which reads as a contradiction and
+                # is undiagnosable. Always log why.
+                local MERGE_ERR
+                if MERGE_ERR=$(gh pr merge "$PR_NUM" --repo "$REPO" --rebase --delete-branch 2>&1); then
                     log "AUTO-MERGED $REPO PR #$PR_NUM into $BASE_BRANCH (rebase; via $TRIGGER; ci_ok=$CI_OK reviewed-ok, no danger/changes-requested)"
                     jira_move_to_review "$JIRA_KEY"
                     ADDED=$((ADDED + 1))
                 else
-                    log "auto-merge FAILED for $REPO PR #$PR_NUM (via $TRIGGER; state=$STATE n=$NSTAT reviewed_ok=$APPROVED_LABEL mergeable=$MERGEABLE)"
+                    log "auto-merge FAILED for $REPO PR #$PR_NUM (via $TRIGGER; state=$STATE n=$NSTAT reviewed_ok=$APPROVED_LABEL mergeable=$MERGEABLE): $(echo "$MERGE_ERR" | tr '\n' ' ' | cut -c1-300)"
                 fi
             else
                 log "auto-merge skip $REPO PR #$PR_NUM: ci_ok=$CI_OK state=$STATE n=$NSTAT reviewed_ok=$APPROVED_LABEL danger=$DANGER changes_requested=$CR mergeable=$MERGEABLE issue_label=$ISSUE_AUTO_MERGE"
