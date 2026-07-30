@@ -8,19 +8,31 @@ past that, the worker either never advanced it (e.g. TRIP-1 blocked on the MCP,
 2026-07-17) or it is genuinely blocked waiting on Roi (e.g. ZRM-36). Either way
 Roi should hear about it — once — not every dispatch.
 
-Dedup: state file records the last alert per issue. A stuck issue is (re-)alerted
-only when it is newly stuck, its status changed, or RE_ALERT_HOURS have passed.
-Resolved issues drop out of state silently. All currently-stuck issues go in ONE
-email, so the run never sends more than one message regardless of how often it runs.
+Scope: "the worker never produced anything." If the issue already has a PR linked,
+the solver *did* run and the problem is merge/reconcile — reconcile.py owns that
+case and reports it, so the watchdog stays out of it (2026-07-30: it was firing on
+TRIP-45/59, whose PRs are open-but-unmergeable, and on PAN-205, whose PR was closed
+as superseded).
 
-Run from cron (e.g. every 15 min). --dry-run prints instead of emailing/writing state.
+Output goes to the shared team log, not to Roi. Per-item mail to Roi is against the
+standing one-briefing rule — anything Roi actually needs reaches him through the
+08:30 standup, which reads the Project Manager's status.md.
+
+Dedup: state file records the last alert per issue. A stuck issue is re-logged
+only when it is newly stuck, its status changed, or RE_ALERT_HOURS have passed.
+Resolved issues drop out of state silently.
+
+Run from cron (e.g. every 15 min). --dry-run prints instead of logging/writing state.
 """
 import json, os, sys, subprocess, urllib.parse, urllib.request, base64
 from datetime import datetime, timezone
 
 # --- thresholds -------------------------------------------------------------
 TODO_STUCK_MIN       = 20      # To Do this long => worker never picked it up
-INPROGRESS_STUCK_MIN = 90      # In Progress this long => stalled or blocked
+INPROGRESS_STUCK_MIN = 480     # In Progress this long => stalled or blocked.
+                               # A real solver run legitimately takes hours (TRIP-42
+                               # ran 40h and shipped fine), so 90m flagged healthy
+                               # builds every night. 8h is past any normal build.
 RE_ALERT_HOURS       = 24      # don't re-nag a still-stuck issue before this
 
 HOME        = os.path.expanduser("~")
@@ -69,6 +81,26 @@ def enabled_projects():
     return [k for k in out if k]
 
 
+def has_pr(key):
+    """True if the issue has a pull-request remote link.
+
+    The solver attaches the PR link when it opens one. A PR — open, merged or
+    closed — means the worker ran and produced something, so whatever is wrong is
+    a merge or reconcile problem, not a pickup problem. reconcile.py reports those.
+    On a lookup error assume a PR exists: staying quiet beats a false alert.
+    """
+    try:
+        links = api(f"/issue/{key}/remotelink")
+    except Exception as e:
+        print(f"watchdog: remotelink lookup failed for {key}: {e}", file=sys.stderr)
+        return True
+    for l in links:
+        url = (l.get("object") or {}).get("url", "")
+        if "/pull/" in url:
+            return True
+    return False
+
+
 def find_stuck():
     self_id = api("/myself")["accountId"]
     stuck = []
@@ -88,6 +120,8 @@ def find_stuck():
             age = minutes_since(f["statuscategorychangedate"])
             limit = TODO_STUCK_MIN if status == "To Do" else INPROGRESS_STUCK_MIN
             if age < limit:
+                continue
+            if has_pr(it["key"]):
                 continue
             cause = ("queued but the worker never moved it to In Progress"
                      if status == "To Do"
@@ -110,26 +144,14 @@ def human_age(m):
     return f"{h}h {m}m" if h else f"{m}m"
 
 
-def build_email(items):
-    rows = ""
-    for i in items:
-        rows += (
-            f'<tr>'
-            f'<td style="padding:4px 10px;"><a href="{BROWSE}{i["key"]}">{i["key"]}</a></td>'
-            f'<td style="padding:4px 10px;">{i["status"]}</td>'
-            f'<td style="padding:4px 10px;">{human_age(i["age_min"])}</td>'
-            f'<td style="padding:4px 10px;">{i["summary"]}</td>'
-            f'<td style="padding:4px 10px;color:#666;">{i["cause"]}</td>'
-            f'</tr>')
-    return (
-        f'<p>The autonomous pipeline has {len(items)} stuck issue(s) '
-        f'(To Do &gt; {TODO_STUCK_MIN}m or In Progress &gt; {INPROGRESS_STUCK_MIN}m):</p>'
-        f'<table style="border-collapse:collapse;font-family:sans-serif;font-size:14px;">'
-        f'<tr style="background:#f0f0f0;text-align:left;">'
-        f'<th style="padding:4px 10px;">Issue</th><th style="padding:4px 10px;">Status</th>'
-        f'<th style="padding:4px 10px;">Stuck for</th><th style="padding:4px 10px;">Summary</th>'
-        f'<th style="padding:4px 10px;">Likely cause</th></tr>{rows}</table>'
-        f'<p style="color:#888;font-size:12px;">Re-alerts at most once per {RE_ALERT_HOURS}h per issue.</p>')
+def build_log_line(items):
+    """One greppable line for the shared team log — no PR/ticket link needed."""
+    return (f"pipeline watchdog: {len(items)} issue(s) picked up by nobody "
+            f"(To Do >{TODO_STUCK_MIN}m or In Progress >{INPROGRESS_STUCK_MIN}m, "
+            f"no PR attached) — " +
+            ", ".join(f'{i["key"]} {i["status"]} {human_age(i["age_min"])}'
+                      for i in items) +
+            f" | {BROWSE}")
 
 
 def main():
@@ -155,28 +177,21 @@ def main():
             new_state[key] = prev  # carry forward, keeps old last_alert
 
     if not to_alert:
-        print(f"watchdog: {len(stuck)} stuck, 0 new/due — no alert")
+        print(f"watchdog: {len(stuck)} stuck, 0 new/due — nothing to log")
         if not DRY:
             json.dump(new_state, open(STATE_FILE, "w"), indent=2)
         return
 
-    body = build_email(to_alert)
-    subject = f"⚠️ Pipeline stuck: {len(to_alert)} issue(s) — " + \
-              ", ".join(i["key"] for i in to_alert)
+    line = build_log_line(to_alert)
 
     if DRY:
-        print("=== DRY RUN ===\nSubject:", subject, "\n", body)
+        print("=== DRY RUN ===\n" + line)
         return
 
-    subprocess.run([os.path.join(HOME, "projects/team/scripts/send-mail-internal.sh"),
-                    subject, body, "pm@roikedem.com", "Project Manager"], check=False)
     subprocess.run([os.path.join(HOME, "projects/team/scripts/log.sh"),
-                    "Project Manager", "WARN",
-                    "pipeline watchdog: " + ", ".join(
-                        f'{i["key"]} {i["status"]} {human_age(i["age_min"])}' for i in to_alert)],
-                   check=False)
+                    "Project Manager", "WARN", line], check=False)
     json.dump(new_state, open(STATE_FILE, "w"), indent=2)
-    print("watchdog: alerted on", ", ".join(i["key"] for i in to_alert))
+    print("watchdog: logged", ", ".join(i["key"] for i in to_alert))
 
 
 if __name__ == "__main__":
