@@ -28,7 +28,9 @@ import json, os, sys, subprocess, urllib.parse, urllib.request, base64
 from datetime import datetime, timezone
 
 # --- thresholds -------------------------------------------------------------
-TODO_STUCK_MIN       = 20      # To Do this long => worker never picked it up
+TODO_STUCK_MIN       = 120     # To Do this long => worker never picked it up.
+                               # 20m was too tight: it fired on TRIP-71 at 27m,
+                               # which the pipeline picked up and shipped 25m later.
 INPROGRESS_STUCK_MIN = 480     # In Progress this long => stalled or blocked.
                                # A real solver run legitimately takes hours (TRIP-42
                                # ran 40h and shipped fine), so 90m flagged healthy
@@ -145,13 +147,13 @@ def human_age(m):
 
 
 def build_log_line(items):
-    """One greppable line for the shared team log — no PR/ticket link needed."""
+    """One greppable line for the shared team log — one browse URL per issue."""
     return (f"pipeline watchdog: {len(items)} issue(s) picked up by nobody "
             f"(To Do >{TODO_STUCK_MIN}m or In Progress >{INPROGRESS_STUCK_MIN}m, "
             f"no PR attached) — " +
-            ", ".join(f'{i["key"]} {i["status"]} {human_age(i["age_min"])}'
-                      for i in items) +
-            f" | {BROWSE}")
+            ", ".join(f'{i["key"]} {i["status"]} {human_age(i["age_min"])} '
+                      f'{BROWSE}{i["key"]}'
+                      for i in items))
 
 
 def main():
