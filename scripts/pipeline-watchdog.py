@@ -28,9 +28,14 @@ import json, os, sys, subprocess, urllib.parse, urllib.request, base64
 from datetime import datetime, timezone
 
 # --- thresholds -------------------------------------------------------------
-TODO_STUCK_MIN       = 120     # To Do this long => worker never picked it up.
+TODO_STUCK_MIN       = 240     # To Do this long => worker never picked it up.
                                # 20m was too tight: it fired on TRIP-71 at 27m,
                                # which the pipeline picked up and shipped 25m later.
+                               # 120m was still too tight: on 31.7 it flagged
+                               # TRIP-76 and TRIP-77 at ~2h and both merged 70 and
+                               # 95 min after the alert. On a busy day the pipeline
+                               # turns a ticket around in ~3h, so anything under
+                               # that is noise.
 INPROGRESS_STUCK_MIN = 480     # In Progress this long => stalled or blocked.
                                # A real solver run legitimately takes hours (TRIP-42
                                # ran 40h and shipped fine), so 90m flagged healthy
