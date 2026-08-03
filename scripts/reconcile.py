@@ -370,6 +370,18 @@ def check_project(proj):
             continue
         r = sh(f'git -C "{local}" status --porcelain --untracked-files=no')
         dirty = [ln for ln in r.stdout.splitlines() if ln.strip()]
+        # Skip paths the repo itself lists in .gitignore but that are still
+        # tracked — those are machine-written runtime state (e.g. the odata
+        # fetcher's production.state.json, rewritten every 15 min by cron), not
+        # orphaned agent work. Left in, they re-flag every single night forever.
+        if dirty:
+            paths = [ln[3:].strip().strip('"') for ln in dirty]
+            ign = sh(f'git -C "{local}" check-ignore --no-index -- '
+                     + " ".join(f'"{p}"' for p in paths))
+            ignored = {ln.strip() for ln in ign.stdout.splitlines() if ln.strip()}
+            if ignored:
+                dirty = [ln for ln in dirty
+                         if ln[3:].strip().strip('"') not in ignored]
         if dirty:
             files = ", ".join(ln[3:] for ln in dirty[:5])
             more = f" (+{len(dirty)-5} more)" if len(dirty) > 5 else ""
