@@ -140,10 +140,20 @@ for l in json.load(sys.stdin): print(l.get("object",{}).get("url"))'
   jql)
     JQL="${2:?Usage: jira.sh jql \"<JQL>\"}"
     ENC=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$JQL")
-    api GET "/search/jql?jql=$ENC&maxResults=50&fields=summary,status" \
-      | python3 -c 'import json,sys
+    # /search/jql caps a page at 100 and returns nextPageToken when there is
+    # more. Without following it, a project with >100 matches silently loses
+    # the tail — that dropped 18 finished TRIP tickets out of the Roi queue
+    # (2026-08-06), because queue-sync sorts oldest-first and never saw them.
+    TOKEN_PARAM=""
+    while :; do
+      PAGE=$(api GET "/search/jql?jql=$ENC&maxResults=100&fields=summary,status$TOKEN_PARAM")
+      printf '%s' "$PAGE" | python3 -c 'import json,sys
 for i in json.load(sys.stdin).get("issues",[]):
     f=i["fields"]; print(i["key"], "|", f["status"]["name"], "|", f.get("summary"))'
+      NEXT=$(printf '%s' "$PAGE" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("nextPageToken") or "")')
+      [ -n "$NEXT" ] || break
+      TOKEN_PARAM="&nextPageToken=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$NEXT")"
+    done
     ;;
 
   *)
