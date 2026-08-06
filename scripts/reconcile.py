@@ -31,6 +31,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,6 +47,9 @@ JIRA_BASE = "https://intotodev.atlassian.net/rest/api/3"
 GH_TOKEN = (HOME / ".config" / "claude-agent-gh-token").read_text().strip()
 NEON = HOME / ".config" / "dev-ai-neon-connection-params"
 RECONCILED_DIR = HOME / "dev-context" / "_reconciled"
+# How recently a dirty file must have been touched to count as a live edit
+# rather than orphaned work (see the uncommitted-edits check below).
+DIRTY_FRESH_SECONDS = 6 * 3600
 LOG = DEV_AI / "logs" / "reconcile.log"
 
 findings = []   # (severity, project, msg) — severity: FIX|FLAG
@@ -382,6 +386,25 @@ def check_project(proj):
             if ignored:
                 dirty = [ln for ln in dirty
                          if ln[3:].strip().strip('"') not in ignored]
+        # Skip edits a live session is still making. This check is for ORPHANED
+        # work — an agent that exited leaving the change stranded. A remote-control
+        # session mid-task (e.g. vayisu-design-rc rewriting globals.css) is not
+        # orphaned, and flagging it turns a live edit into a nightly false alarm
+        # (2026-08-06: italy-trip theme work flagged while the Designer session
+        # was actively editing it). Anything touched inside the window is still
+        # someone's open work; it will be flagged for real once it goes quiet.
+        if dirty:
+            fresh_cutoff = time.time() - DIRTY_FRESH_SECONDS
+            still = []
+            for ln in dirty:
+                p = local / ln[3:].strip().strip('"')
+                try:
+                    if p.stat().st_mtime >= fresh_cutoff:
+                        continue          # live edit — leave it alone
+                except OSError:
+                    pass                  # deleted/unreadable — treat as stranded
+                still.append(ln)
+            dirty = still
         if dirty:
             files = ", ".join(ln[3:] for ln in dirty[:5])
             more = f" (+{len(dirty)-5} more)" if len(dirty) > 5 else ""
