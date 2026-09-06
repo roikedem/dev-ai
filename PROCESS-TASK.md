@@ -256,9 +256,11 @@ gh pr create --base <base_branch> --title "$TASK_KEY: brief description" --body 
 
 **Command:** `jira.sh link $TASK_KEY "<PR URL>" "PR: <PR title>"`
 
-**Leave the Jira issue in "In Progress" — do NOT move it to "Review" here.**
+**Leave the Jira issue in "In Progress" — do NOT move it to "Review" here.** `poll-github.sh` sets "Review" deterministically; you never do.
 
-"Review" now means *shipped and ready for Roi's own review*, so it is set only when the PR **merges** (done automatically by `poll-github.sh`). The whole solve → test → code-review → merge cycle stays "In Progress"; Roi is not part of it.
+"Review" means *a PR is waiting for Roi*. How it gets set depends on whether the pipeline can merge the repo:
+- **Auto-merge repos** (`auto_merge_when_green: true`, or the issue has the `auto-merge` label): the pipeline merges after its own review, and `poll-github.sh` moves the issue to "Review" **on merge**. The whole solve → test → code-review → merge cycle stays "In Progress"; Roi is not part of it.
+- **Non-auto-merge repos** (Roi merges by hand — e.g. pandit): there is no merge event, so `poll-github.sh` moves the issue to "Review" **as soon as the PR is open** (skipping while a CHANGES_REQUESTED review is open, so rework stays "In Progress"). This is the signal that a PR is waiting for Roi to review and merge.
 
 Log: `Opened PR for $TASK_KEY (Jira stays In Progress until merge): <PR URL>`
 
@@ -378,7 +380,7 @@ If no actionable comments exist — nothing to do for this task.
      --field body="Addressed in <commit sha> — brief explanation of what changed."
    ```
 
-9. **Leave the Jira issue in "In Progress"** — do not set it to "Review". As with a fresh PR, `poll-github.sh` moves it to "Review" only when the fix re-merges.
+9. **Leave the Jira issue in "In Progress"** — do not set it to "Review"; `poll-github.sh` handles it (on merge for auto-merge repos; once the PR is open again with no open CHANGES_REQUESTED review for non-auto-merge repos like pandit).
 
 10. **Update `$TASK_CONTEXT_FILE`:**
 

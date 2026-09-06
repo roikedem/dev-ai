@@ -64,6 +64,37 @@ jira_move_to_review() {
     fi
 }
 
+# Move a non-auto-merge PR's Jira issue to "Review" while the PR is still OPEN.
+# For repos where Roi merges by hand (no auto_merge_when_green and no per-issue
+# "auto-merge" label — e.g. pandit) there is no merge event to hook, so
+# jira_move_to_review would never fire and the ticket would sit "In Progress"
+# forever with a PR waiting on Roi. Here "Review" means "a PR is open and waiting
+# for Roi", so it is set as soon as the PR exists. Only transitions from
+# "In Progress" (never disturbs To Do, a rework state, or a status Roi set);
+# the caller skips it when changes were requested (that's the agent's turn).
+# Restores the pre-2026-07-07 flow for non-auto-merge repos.
+jira_move_to_review_open_pr() {
+    local key="$1" repo="$2" pr="$3"
+    [ -z "$key" ] && return 0
+    [ -z "$JIRA_API_TOKEN" ] && return 0
+    local cur
+    cur=$(curl -sf -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -H "Accept: application/json" \
+        "$JIRA_BASE/rest/api/3/issue/$key?fields=status" 2>/dev/null | jq -r '.fields.status.name // empty')
+    [ "$cur" = "In Progress" ] || return 0
+    local tid
+    tid=$(curl -sf -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -H "Accept: application/json" \
+        "$JIRA_BASE/rest/api/3/issue/$key/transitions" 2>/dev/null \
+        | jq -r '.transitions[]? | select(.to.name=="Review") | .id' | head -1)
+    [ -z "$tid" ] && { log "open-PR: no 'Review' transition for $key (status=$cur)"; return 0; }
+    if curl -sf -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -X POST -H "Content-Type: application/json" \
+        "$JIRA_BASE/rest/api/3/issue/$key/transitions" \
+        -d "{\"transition\":{\"id\":\"$tid\"}}" >/dev/null 2>&1; then
+        log "open-PR: transitioned $key to Review ($repo PR #$pr open, non-auto-merge — ready for Roi)"
+    else
+        log "open-PR: FAILED to transition $key to Review ($repo PR #$pr)"
+    fi
+}
+
 # Build list of repos to poll from the repos array
 mapfile -t REPOS < <(jq -r '.repos[].github' "$CONFIG")
 
@@ -231,8 +262,17 @@ poll_repo() {
                 echo "$_LBLS" | grep -qx "auto-merge" && ISSUE_AUTO_MERGE=true
             fi
 
-            # Skip unless this PR is eligible by repo flag OR issue label.
+            # Non-auto-merge PR (Roi merges by hand): the pipeline can't merge it,
+            # so signal Roi by moving the ticket to "Review" while the PR is open —
+            # unless a CHANGES_REQUESTED review is open, in which case it's the
+            # agent's turn and the ticket stays "In Progress".
             if [ "$REPO_AUTO_MERGE" != "true" ] && [ "$ISSUE_AUTO_MERGE" != "true" ]; then
+                local NM_CR
+                NM_CR=$(gh api "repos/$REPO/pulls/$PR_NUM/reviews?per_page=100" 2>/dev/null \
+                    | jq -r '[ .[] | select(.state=="APPROVED" or .state=="CHANGES_REQUESTED" or .state=="DISMISSED") ]
+                             | group_by(.user.login) | map(max_by(.submitted_at) | .state)
+                             | [ .[] | select(.=="CHANGES_REQUESTED") ] | length')
+                [ "${NM_CR:-0}" = "0" ] && jira_move_to_review_open_pr "$JIRA_KEY" "$REPO" "$PR_NUM"
                 continue
             fi
 
