@@ -30,6 +30,7 @@ JIRA_EMAIL="roikedem+claudecode@gmail.com"
 JIRA_API_TOKEN=""
 [ -f "$JIRA_API_TOKEN_FILE" ] && JIRA_API_TOKEN=$(tr -d '\r\n' < "$JIRA_API_TOKEN_FILE")
 JIRA_BASE="https://intotodev.atlassian.net"
+AGENT_JIRA_ID="712020:5fe763f6-0c14-4439-aa98-f55d5ee09cb7"  # Claude Code Roi's Agent — to tell agent comments from Roi's
 
 # Move a Jira issue to "Review" once its PR has merged — "Review" is the signal
 # that the change is shipped and ready for ROI's own review (the AI code/review
@@ -81,6 +82,24 @@ jira_move_to_review_open_pr() {
     cur=$(curl -sf -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -H "Accept: application/json" \
         "$JIRA_BASE/rest/api/3/issue/$key?fields=status" 2>/dev/null | jq -r '.fields.status.name // empty')
     [ "$cur" = "In Progress" ] || return 0
+    # Rework guard (Roi, 7.9): Roi requests changes by commenting on the Jira
+    # ticket and moving it to In Progress — NOT by a GitHub review. If the latest
+    # non-agent comment is newer than the PR, he's asking for rework: leave the
+    # ticket In Progress so the queued comment-task handles it, don't bounce it to
+    # Review. (Without this, this function re-flipped his re-opened ticket every poll.)
+    local pr_created hc pr_epoch hc_epoch
+    pr_created=$(gh api "repos/$repo/pulls/$pr" --jq '.created_at' 2>/dev/null)
+    hc=$(curl -sf -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -H "Accept: application/json" \
+        "$JIRA_BASE/rest/api/3/issue/$key/comment?orderBy=-created&maxResults=30" 2>/dev/null \
+        | jq -r --arg self "$AGENT_JIRA_ID" '[.comments[]? | select(.author.accountId != $self) | .created] | max // empty')
+    if [ -n "$pr_created" ] && [ -n "$hc" ]; then
+        pr_epoch=$(date -d "$pr_created" +%s 2>/dev/null)
+        hc_epoch=$(date -d "$hc" +%s 2>/dev/null)
+        if [ -n "$pr_epoch" ] && [ -n "$hc_epoch" ] && [ "$hc_epoch" -gt "$pr_epoch" ]; then
+            log "open-PR: $key has a human comment newer than PR #$pr — rework pending, staying In Progress"
+            return 0
+        fi
+    fi
     local tid
     tid=$(curl -sf -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -H "Accept: application/json" \
         "$JIRA_BASE/rest/api/3/issue/$key/transitions" 2>/dev/null \

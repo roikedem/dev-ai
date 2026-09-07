@@ -44,6 +44,7 @@ REGISTRY = HOME / ".config" / "dev-ai.json"
 JIRA_TOKEN = (HOME / ".config" / "atlassian-api-token").read_text().strip()
 JIRA_EMAIL = "roikedem+claudecode@gmail.com"
 JIRA_BASE = "https://intotodev.atlassian.net/rest/api/3"
+AGENT_JIRA_ID = "712020:5fe763f6-0c14-4439-aa98-f55d5ee09cb7"  # the agent — to tell its comments from Roi's
 GH_TOKEN = (HOME / ".config" / "claude-agent-gh-token").read_text().strip()
 NEON = HOME / ".config" / "dev-ai-neon-connection-params"
 RECONCILED_DIR = HOME / "dev-context" / "_reconciled"
@@ -107,6 +108,28 @@ def repo_auto_merge(cfg, repo):
     """True if this repo auto-merges (front); False = needs Roi's manual review (Drupal)."""
     return any(r.get("auto_merge_when_green")
                for r in cfg.get("repos", []) if r["github"] == repo)
+
+
+def _epoch(s):
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0
+
+
+def rework_pending(key, repo, pr_num):
+    """Roi requests changes by commenting on the Jira ticket and moving it to
+    In Progress — NOT by a GitHub review. If the latest non-agent comment is
+    newer than the PR, it's a rework request: don't bounce the ticket to Review
+    (the queued comment-task reworks it). Mirrors poll-github.sh's guard."""
+    prd = gh(f"repos/{repo}/pulls/{pr_num}") or {}
+    pr_created = prd.get("created_at")
+    c = jira_get(f"issue/{key}/comment?orderBy=-created&maxResults=30") or {}
+    human = [cm["created"] for cm in c.get("comments", [])
+             if (cm.get("author") or {}).get("accountId") != AGENT_JIRA_ID]
+    if not pr_created or not human:
+        return False
+    return max(_epoch(t) for t in human) > _epoch(pr_created)
 
 
 def gh(path):
@@ -224,6 +247,11 @@ def check_project(proj):
                 f"{key}: queue 'done' but Jira '{jstatus}' ({pr_desc}) → "
                 f"{'would set Review' if manual_review else 'would requeue'} [dry-run]"))
         elif manual_review:
+            if rework_pending(key, pr[2], pr[1]):
+                findings.append(("SKIP", name,
+                    f"{key}: In Progress with a human comment newer than PR #{pr[1]} — "
+                    f"rework requested, leaving In Progress (not bounced to Review)"))
+                continue
             ok = jira_transition_to_review(key)
             findings.append(("FIX", name,
                 f"{key}: open PR #{pr[1]} awaiting manual review → "
