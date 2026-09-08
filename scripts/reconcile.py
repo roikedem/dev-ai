@@ -119,17 +119,19 @@ def _epoch(s):
 
 def rework_pending(key, repo, pr_num):
     """Roi requests changes by commenting on the Jira ticket and moving it to
-    In Progress — NOT by a GitHub review. If the latest non-agent comment is
-    newer than the PR, it's a rework request: don't bounce the ticket to Review
-    (the queued comment-task reworks it). Mirrors poll-github.sh's guard."""
-    prd = gh(f"repos/{repo}/pulls/{pr_num}") or {}
-    pr_created = prd.get("created_at")
+    In Progress — NOT by a GitHub review. Rework is pending only if his latest
+    non-agent comment is newer than the PR's LAST COMMIT: once the agent reworks
+    and pushes, the commit moves past the comment and the ticket may advance.
+    Mirrors poll-github.sh's guard."""
+    commits = gh(f"repos/{repo}/pulls/{pr_num}/commits?per_page=100") or []
+    last_commit = max((c.get("commit", {}).get("committer", {}).get("date")
+                       for c in commits if c.get("commit")), default=None)
     c = jira_get(f"issue/{key}/comment?orderBy=-created&maxResults=30") or {}
     human = [cm["created"] for cm in c.get("comments", [])
              if (cm.get("author") or {}).get("accountId") != AGENT_JIRA_ID]
-    if not pr_created or not human:
+    if not last_commit or not human:
         return False
-    return max(_epoch(t) for t in human) > _epoch(pr_created)
+    return max(_epoch(t) for t in human) > _epoch(last_commit)
 
 
 def gh(path):

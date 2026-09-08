@@ -87,16 +87,20 @@ jira_move_to_review_open_pr() {
     # non-agent comment is newer than the PR, he's asking for rework: leave the
     # ticket In Progress so the queued comment-task handles it, don't bounce it to
     # Review. (Without this, this function re-flipped his re-opened ticket every poll.)
-    local pr_created hc pr_epoch hc_epoch
-    pr_created=$(gh api "repos/$repo/pulls/$pr" --jq '.created_at' 2>/dev/null)
+    # Compare Roi's latest comment to the PR's LAST COMMIT (not its creation):
+    # rework is pending only if he commented AFTER the agent's most recent push.
+    # Once the agent reworks and pushes, the last commit moves past the comment
+    # and the ticket is free to advance to Review.
+    local last_commit hc c_epoch hc_epoch
+    last_commit=$(gh api "repos/$repo/pulls/$pr/commits?per_page=100" --jq '[.[].commit.committer.date] | max' 2>/dev/null)
     hc=$(curl -sf -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -H "Accept: application/json" \
         "$JIRA_BASE/rest/api/3/issue/$key/comment?orderBy=-created&maxResults=30" 2>/dev/null \
         | jq -r --arg self "$AGENT_JIRA_ID" '[.comments[]? | select(.author.accountId != $self) | .created] | max // empty')
-    if [ -n "$pr_created" ] && [ -n "$hc" ]; then
-        pr_epoch=$(date -d "$pr_created" +%s 2>/dev/null)
+    if [ -n "$last_commit" ] && [ -n "$hc" ]; then
+        c_epoch=$(date -d "$last_commit" +%s 2>/dev/null)
         hc_epoch=$(date -d "$hc" +%s 2>/dev/null)
-        if [ -n "$pr_epoch" ] && [ -n "$hc_epoch" ] && [ "$hc_epoch" -gt "$pr_epoch" ]; then
-            log "open-PR: $key has a human comment newer than PR #$pr — rework pending, staying In Progress"
+        if [ -n "$c_epoch" ] && [ -n "$hc_epoch" ] && [ "$hc_epoch" -gt "$c_epoch" ]; then
+            log "open-PR: $key has a human comment newer than PR #$pr's last commit — rework pending, staying In Progress"
             return 0
         fi
     fi
