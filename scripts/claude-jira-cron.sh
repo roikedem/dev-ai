@@ -128,7 +128,13 @@ WATCH_DIR="$HOME/dev-context"
 MARK=$(mktemp /tmp/claude-mark-XXXXXX)
 IDLE=0
 
+# --strict-mcp-config: load ONLY the playwright MCP below, NOT the user-level
+# atlassian MCP. That MCP authenticates via Roi's claude.ai OAuth (account
+# "Roi Kedem"), so if the agent used it to comment, the comment posted under
+# Roi's name. Forcing strict config makes it unavailable — the agent must use
+# jira.sh (its own token, "Claude Code Roi's Agent") for all Jira writes.
 "$CLAUDE" --model sonnet --dangerously-skip-permissions --output-format json \
+    --strict-mcp-config \
     --mcp-config "$DEV_AI_ROOT/config/playwright-mcp.json" \
     -p "Follow the Entry Point section in $DEV_AI_ROOT/PROCESS-TASK.md." \
     > "$CLAUDE_OUTFILE" 2>&1 &
