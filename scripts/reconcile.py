@@ -91,6 +91,27 @@ def jira_status(key):
     return d["fields"]["status"]["name"]
 
 
+_AGENT_ID = None
+
+
+def assigned_to_agent(key):
+    """True if the issue's assignee is the pipeline agent (the account these
+    creds authenticate as). A ticket blocked on Roi is reassigned to him; the
+    pipeline must leave it alone until it is handed back. Without this,
+    reconcile requeued Roi-blocked tickets every 30 min (6.10-11.10.2026:
+    ~240 cycles of agents re-reading context only to exit 'waiting for user').
+    Unknown (API failure) counts as agent, preserving the old behaviour."""
+    global _AGENT_ID
+    if _AGENT_ID is None:
+        me = jira_get("myself")
+        _AGENT_ID = (me or {}).get("accountId", "")
+    d = jira_get(f"issue/{key}?fields=assignee")
+    if not d or not _AGENT_ID:
+        return True
+    a = d["fields"].get("assignee") or {}
+    return a.get("accountId") == _AGENT_ID
+
+
 def jira_transition_to_review(key):
     """Move a Jira issue to 'Review'. Idempotent enough — caller checks status first."""
     d = jira_get(f"issue/{key}/transitions")
@@ -208,6 +229,8 @@ def check_project(proj):
         jlow = jstatus.lower()
         if jlow in ("review", "in review", "completed", "done", "canceled", "closed"):
             continue  # already advanced or closed — fine
+        if not assigned_to_agent(key):
+            continue  # handed to Roi (blocked on him) — not the pipeline's to re-run
         # A task marked `done` whose Jira never reached Review/Done is STUCK: the
         # session exited (e.g. hit the turn limit) before finishing its final
         # steps (merge / transition / post report). The right fix is NOT to patch
@@ -306,6 +329,8 @@ def check_project(proj):
                 "done", "completed", "closed", "canceled", "cancelled"
             ):
                 continue
+            if not assigned_to_agent(key):
+                continue  # handed to Roi (blocked on him) — not the pipeline's to re-run
             # Don't pile up: skip if a non-done task for this key is already queued/running.
             live = psql(
                 "SELECT count(*) FROM tasks "
