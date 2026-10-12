@@ -91,6 +91,18 @@ jira_move_to_review_open_pr() {
     # rework is pending only if he commented AFTER the agent's most recent push.
     # Once the agent reworks and pushes, the last commit moves past the comment
     # and the ticket is free to advance to Review.
+    # Reviewer guard: the Reviewer posts under the agent's own Jira account, so the
+    # human-comment check below can't see it. While the latest comment is a
+    # rejection the developer hasn't answered, the ticket stays In Progress; the
+    # developer's next proof comment releases it.
+    local last_text
+    last_text=$(curl -sf -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -H "Accept: application/json" \
+        "$JIRA_BASE/rest/api/3/issue/$key/comment?orderBy=-created&maxResults=1" 2>/dev/null \
+        | jq -r '[.comments[0].body | .. | .text? // empty] | join("")')
+    if [[ "$last_text" == "Reviewer: proof rejected"* ]]; then
+        log "open-PR: $key latest comment is a reviewer rejection — staying In Progress"
+        return 0
+    fi
     local last_commit hc c_epoch hc_epoch
     last_commit=$(gh api "repos/$repo/pulls/$pr/commits?per_page=100" --jq '[.[].commit.committer.date] | max' 2>/dev/null)
     hc=$(curl -sf -u "$JIRA_EMAIL:$JIRA_API_TOKEN" -H "Accept: application/json" \

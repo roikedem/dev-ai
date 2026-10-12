@@ -145,6 +145,29 @@ while IFS= read -r issue; do
 
 done <<< "$ISSUES"
 
+# --- Review lane: tickets the developer moved to Review, still on the agent ---
+# The Reviewer (review-runner.sh) judges the developer's proof before Roi sees the
+# ticket. Dedup on the latest comment id: after a rejection the developer re-proves
+# with a new comment and moves it back to Review, which makes a fresh review task.
+REVIEW_JQL="project=$PROJECT_KEY AND assignee = currentUser() AND status = 'Review' ORDER BY updated ASC"
+REVIEW_RESPONSE=$(curl -sf -u "$EMAIL:$API_TOKEN" -H "Accept: application/json" \
+    "$BASE_URL/search/jql?jql=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$REVIEW_JQL")&maxResults=50&fields=summary,assignee,comment")
+if [ $? -ne 0 ]; then
+    log "Jira API request failed (review lane)"
+else
+    while IFS= read -r issue; do
+        [ -z "$issue" ] && continue
+        KEY=$(echo "$issue" | jq -r '.key')
+        [ "$(echo "$issue" | jq -r '.fields.assignee.accountId // ""')" = "$SELF_ID" ] || continue
+        LAST_COMMENT=$(echo "$issue" | jq -r '[.fields.comment.comments[]?.id] | last // "0"')
+        TASK=$(jq -nc --arg key "$KEY" --arg summary "$(echo "$issue" | jq -r '.fields.summary')" \
+            --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{type:"review", key:$key, summary:$summary, priority_rank:1, queued_at:$ts}')
+        INSERTED=$("$QUEUE_SH" push "$PROJECT_DIR" "$TASK" "review:$KEY:$LAST_COMMENT")
+        [ "$INSERTED" = "1" ] && log "queued review $KEY"
+    done <<< "$(echo "$REVIEW_RESPONSE" | jq -c '.issues[]?')"
+fi
+
 TOTAL=$("$QUEUE_SH" count "$PROJECT_DIR")
 if [ $? -ne 0 ]; then
     log "queue database unreachable — nothing was queued this run (pipeline DOWN, not idle)"

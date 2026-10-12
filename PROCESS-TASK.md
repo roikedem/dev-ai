@@ -53,7 +53,19 @@ Before doing anything else, read `$TASK_CONTEXT_FILE` if it exists.
 
 Then route based on `$TASK_TYPE`:
 - `jira_issue` — go to **step 0** (start of issue workflow)
-- `jira_comment` — new comment on `$TASK_KEY`; read the issue and respond/resume work from the appropriate step
+- `jira_comment` — new comment on `$TASK_KEY`; read the issue and respond/resume work from the appropriate step. **If `$TASK_COMMENT_AUTHOR` is `Reviewer`, go to "Reviewer rejection" below.**
+
+### Reviewer rejection
+
+An independent Reviewer judges your proof before Roi sees the ticket. A comment starting `Reviewer: proof rejected` means your proof did not convince it; the ticket is back In Progress and still yours. Roi never sees it until the Reviewer passes it, and a second rejection hands it to him labelled `unproven`.
+
+1. Read the rejection. Each `NOT PROVEN` line names an outcome and the proof it needs.
+2. Find out whether the outcome really happens. Often the proof was missing or off-target; sometimes the fix itself does not work (the screenshot showed the bug still there). If it does not work, fix it (new commit/PR, steps 4–7).
+3. Produce the proof each line asks for, on the real case the ticket names — the right route, logged in as the ticket needs, the relevant element visible. Use as many screenshots as it takes.
+4. Post ONE Jira comment that answers each `NOT PROVEN` line in order, with its proof embedded.
+5. Transition the ticket to "Review" yourself (`jira.sh transition <KEY> "Review"`) — unless a new PR is still open or unmerged on an auto-merge repo, in which case `poll-github.sh` moves it once merged. The Reviewer re-judges it on the next poll.
+
+Never argue with the Reviewer in a comment instead of proving, and never re-post the same evidence it rejected.
 - `github_pr_comment` — new inline comment on PR `$TASK_PR_NUMBER`; go to **PR Review → step C**
 - `github_pr_review` — review on PR `$TASK_PR_NUMBER`; go to **PR Review → step C**
 - `github_pr_merged` — PR `$TASK_PR_NUMBER` was merged; go to **PR Review → step E**

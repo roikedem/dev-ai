@@ -8,6 +8,11 @@
 #   queue.sh done    <project-dir> <task-id>                  — mark task done
 #   queue.sh requeue <project-dir> <task-id>                  — reset in_progress → queued (crash recovery for a known task)
 #   queue.sh recover <project-dir>                            — requeue all in_progress tasks owned by this host; prints one line per task
+#
+# pop/count/peek/recover take an optional last argument, the lane: `dev` (default)
+# or `review`. Review tasks (task_type='review') run in their own lane with their
+# own lock, in parallel with dev work: they never touch the project checkout, so
+# the one-at-a-time rule that protects the checkout does not apply to them.
 
 OPERATION="${1:?Usage: queue.sh <push|pop|count|peek|done|requeue|recover> <project-dir> [...]}"
 PROJECT_DIR="${2:?Missing project-dir}"
@@ -64,6 +69,14 @@ psql() {
 sq() { printf '%s' "$1" | sed "s/'/''/g"; }
 
 HOST="$(sq "$(hostname)")"
+
+lane_sql() {
+  case "${1:-dev}" in
+    review) echo "task_type='review'" ;;
+    dev)    echo "task_type<>'review'" ;;
+    *)      echo "Unknown lane: $1" >&2; exit 1 ;;
+  esac
+}
 DIR="$(sq "$PROJECT_DIR")"
 
 case "$OPERATION" in
@@ -104,12 +117,13 @@ case "$OPERATION" in
     ;;
 
   pop)
+    LANE="$(lane_sql "${3:-}")" || exit 1
     psql -t -A -c "
       UPDATE tasks
       SET status='in_progress', started_at=NOW(), worker_host='$HOST'
       WHERE id = (
         SELECT id FROM tasks
-        WHERE project_dir='$DIR' AND status='queued'
+        WHERE project_dir='$DIR' AND status='queued' AND $LANE
         ORDER BY COALESCE((payload->>'priority_rank')::int, 3), queued_at
         LIMIT 1
         FOR UPDATE SKIP LOCKED
@@ -118,15 +132,17 @@ case "$OPERATION" in
     ;;
 
   count)
+    LANE="$(lane_sql "${3:-}")" || exit 1
     psql -t -A -c "
       SELECT COUNT(*) FROM tasks
-      WHERE project_dir='$DIR' AND status='queued';"
+      WHERE project_dir='$DIR' AND status='queued' AND $LANE;"
     ;;
 
   peek)
+    LANE="$(lane_sql "${3:-}")" || exit 1
     psql -t -A -c "
       SELECT payload FROM tasks
-      WHERE project_dir='$DIR' AND status='queued'
+      WHERE project_dir='$DIR' AND status='queued' AND $LANE
       ORDER BY COALESCE((payload->>'priority_rank')::int, 3), queued_at
       LIMIT 1;" | grep '^{'
     ;;
@@ -148,10 +164,13 @@ case "$OPERATION" in
   recover)
     # Requeue any in_progress tasks from this host (implies a previous crash on this machine).
     # Prints one line per recovered task: "<id> <task_type> <task_key>"
+    # Lane-scoped: the dev runner must never requeue a review that is running
+    # right now in the other lane (and vice versa).
+    LANE="$(lane_sql "${3:-}")" || exit 1
     psql -t -A -c "
       WITH recovered AS (
         UPDATE tasks SET status='queued', started_at=NULL, worker_host=NULL
-        WHERE project_dir='$DIR' AND status='in_progress' AND worker_host='$HOST'
+        WHERE project_dir='$DIR' AND status='in_progress' AND worker_host='$HOST' AND $LANE
         RETURNING id, task_type, COALESCE(task_key, task_pr_number, '') AS ref
       )
       SELECT id || ' ' || task_type || ' ' || ref FROM recovered;"

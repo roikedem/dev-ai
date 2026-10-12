@@ -21,9 +21,16 @@ comment id, or the diff) is counted as a fail: no proof, no pass.
 Why (12.10.2026): PAN-273 was reported "Tested in browser" with a 21-px screenshot
 of a label and a fix that could not work. The developer graded its own work.
 
+Runs as a pipeline task: poll-jira.sh queues a `review` task when a ticket reaches
+Review assigned to the agent, and review-runner.sh runs `review-tickets.py --key KEY`
+in the review lane, in parallel with dev work (it never touches the checkout).
+
 Usage: review-tickets.py [--dry-run] [--key KEY]
-  --dry-run  print verdicts, change nothing
-  --key      review one ticket (any status/assignee), e.g. for calibration
+  --dry-run  print verdicts, change nothing (with --key: any status/assignee, for calibration)
+  --key      review one ticket; live, it is skipped unless still in Review and
+             assigned to the agent (the task may be stale by the time it runs)
+  (no --key) sweep every Review ticket assigned to the agent
+Exit 1 on an error (Jira, model, bad JSON): the runner requeues the task.
 """
 
 import json
@@ -307,6 +314,24 @@ def act(key, pdir, fields, final, verdict):
     return f"rejected {n}/{MAX_REJECTIONS}, back to developer"
 
 
+def cost_log(pdir, key, cost):
+    """Same cost_log table the dev runs write to, so weekly cost covers reviews too."""
+    params = HOME / ".config" / "dev-ai-neon-connection-params"
+    if not params.exists() or cost is None:
+        return
+    env = dict(os.environ)
+    for line in params.read_text().splitlines():
+        if "=" in line and not line.lstrip().startswith("#"):
+            k, v = line.split("=", 1)
+            env[k.strip().removeprefix("export ").strip()] = v.strip().strip("'\"")
+    q = lambda x: str(x).replace("'", "''")
+    subprocess.run(["psql", "-q", "-c",
+                    "INSERT INTO cost_log (agent_type, project_dir, task_key, task_type, model, "
+                    "input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd) "
+                    f"VALUES ('review','{q(pdir)}','{q(key)}','review','{MODEL}',0,0,0,0,{float(cost)})"],
+                   env=env, capture_output=True)
+
+
 # ---- Main ------------------------------------------------------------------------
 
 def projects():
@@ -320,12 +345,20 @@ def projects():
             yield p["dir"], cfg["jira_project_key"], [r["github"] for r in cfg.get("repos", [])]
 
 
-def review(key, pdir, repos):
-    fields = jira("GET", f"issue/{key}?fields=summary,status,description,comment,attachment")["fields"]
+def review(key, pdir, repos, me=None):
+    fields = jira("GET", f"issue/{key}?fields=summary,status,description,comment,attachment,assignee")["fields"]
+    if me and not DRY:
+        status = fields["status"]["name"]
+        assignee = (fields.get("assignee") or {}).get("accountId")
+        if status != "Review" or assignee != me:
+            log(f"{key}: skipped — no longer Review+agent (status={status})")
+            return
     with tempfile.TemporaryDirectory(prefix=f"review-{key}-") as tmp:
         workdir = Path(tmp)
         evidence, _ = build_pack(key, fields, repos, workdir)
         verdict, cost = ask_model(workdir)
+    if not DRY:
+        cost_log(pdir, key, cost)
     final, problems = validate(verdict, evidence)
     tag = f"{key}: model={verdict.get('verdict')} final={final} cost=${cost or 0:.3f}"
     if problems:
@@ -343,7 +376,7 @@ def main():
         prefix = ONLY_KEY.split("-")[0]
         for pdir, pkey, repos in projects():
             if pkey == prefix:
-                review(ONLY_KEY, pdir, repos)
+                review(ONLY_KEY, pdir, repos, me=jira("GET", "myself")["accountId"])
                 return
         sys.exit(f"no enabled project for {prefix}")
 
