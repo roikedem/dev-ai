@@ -10,7 +10,7 @@
 #   jira.sh get        <KEY>                 — print issue summary/status/description/comments
 #   jira.sh raw        <KEY>                 — dump the raw issue JSON (fields=*all)
 #   jira.sh transition <KEY> <STATUS_NAME>   — move issue to the named status (e.g. "In Progress", "Review", "Done")
-#   jira.sh comment    <KEY> <TEXT>          — add a comment (plain text; converted to ADF)
+#   jira.sh comment    <KEY> <TEXT>          — add a comment (plain text; converted to ADF; "@Roi" becomes a real mention)
 #   jira.sh attach     <KEY> <FILE>          — upload a file attachment
 #   jira.sh link       <KEY> <URL> [TITLE]   — add a remote link (PR → Development panel)
 #   jira.sh links      <KEY>                 — list remote link URLs
@@ -93,7 +93,8 @@ for tr in d.get("transitions",[]):
     KEY="${2:?Usage: jira.sh comment <KEY> <TEXT>}"
     TEXT="${3:?Usage: jira.sh comment <KEY> <TEXT>}"
     BODY=$(TEXT="$TEXT" python3 -c '
-import json,os
+import json,os,re
+ROI_ID="557058:9d9d1c56-8b3e-473c-953f-546715de7f0f"
 text=os.environ["TEXT"]
 paras=[]
 for block in text.split("\n\n"):
@@ -101,7 +102,10 @@ for block in text.split("\n\n"):
     lines=block.split("\n")
     for i,line in enumerate(lines):
         if i: nodes.append({"type":"hardBreak"})
-        if line: nodes.append({"type":"text","text":line})
+        # "@Roi" / "@Roi Kedem" as plain text notifies nobody; make it a real mention.
+        for j,part in enumerate(re.split(r"@Roi(?: Kedem)?\b",line)):
+            if j: nodes.append({"type":"mention","attrs":{"id":ROI_ID,"text":"@Roi Kedem"}})
+            if part: nodes.append({"type":"text","text":part})
     paras.append({"type":"paragraph","content":nodes or [{"type":"text","text":""}]})
 print(json.dumps({"body":{"type":"doc","version":1,"content":paras}}))
 ')
