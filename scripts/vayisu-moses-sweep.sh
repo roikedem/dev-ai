@@ -9,4 +9,6 @@ SECRET_FILE="$HOME/.config/vayisu-cron-secret"
 set -a && source "$SECRET_FILE" && set +a
 [ -n "$CRON_SECRET" ] || { echo "No CRON_SECRET in $SECRET_FILE" >&2; exit 1; }
 
-curl -fsS -m 30 -H "Authorization: Bearer $CRON_SECRET" https://vayisu.com/api/moses/sweep >/dev/null
+# --retry-all-errors: team-lap's Wi-Fi roams between mesh nodes (since 15.10),
+# leaving ~seconds with no DNS (curl exit 6) — retry through the blip.
+curl -fsS -m 15 --retry 3 --retry-delay 5 --retry-all-errors -H "Authorization: Bearer $CRON_SECRET" https://vayisu.com/api/moses/sweep >/dev/null
