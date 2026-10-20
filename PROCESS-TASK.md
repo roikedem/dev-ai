@@ -160,6 +160,7 @@ git checkout -b "$TASK_KEY-short-description" "origin/<base_branch>"
 
 - Create a branch in every repo that needs changes (read `repos` from `.jira-process.json`).
 - Use the same branch name across all repos for traceability.
+- **Never put a worktree, checkout, `npm ci`, DB dump or other large scratch in `/tmp`.** On these hosts `/tmp` is RAM (tmpfs): on 20.10 two stale worktrees and a 107 MB dump left there filled the swap and took the master offline. If you need a second checkout, use `git worktree add ~/projects/<repo>-$TASK_KEY`, and remove it (`git worktree remove`) before you finish.
 
 ### Local environment + before-capture (REQUIRED for any UI/behaviour task)
 
@@ -309,6 +310,8 @@ Log: `Opened PR for $TASK_KEY (Jira stays In Progress until merge): <PR URL>`
 ```bash
 git checkout {default_branch} && git pull
 ```
+
+Then delete everything you created outside the repo for this task: worktrees (`git worktree remove`), dumps, screenshots and logs in `/tmp`.
 
 ---
 
