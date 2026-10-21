@@ -30,6 +30,15 @@ fi
 
 source "$DEV_AI_ROOT/scripts/session-setup.sh"
 
+# Guard: pro_plan is the intended mode (runs on the Max subscription, free).
+# If auth fell back to api_key (e.g. ~/.config/dev-ai-auth-mode went missing),
+# ANTHROPIC_API_KEY is set and every build would silently bill prepaid credits.
+# Refuse to run unless explicitly allowed via ~/.config/dev-ai-allow-api-key.
+if [ -n "$ANTHROPIC_API_KEY" ] && [ ! -f "$HOME/.config/dev-ai-allow-api-key" ]; then
+    log "ABORT — api_key auth mode (ANTHROPIC_API_KEY set); would bill prepaid credits. Restore ~/.config/dev-ai-auth-mode=pro_plan, or touch ~/.config/dev-ai-allow-api-key to override."
+    exit 1
+fi
+
 CLAUDE=$(which claude 2>/dev/null)
 if [ -z "$CLAUDE" ]; then
     log "claude not found in PATH"
