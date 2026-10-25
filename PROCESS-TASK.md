@@ -47,7 +47,7 @@ Before doing anything else, read `$TASK_CONTEXT_FILE` if it exists.
 
 - **`Status: done`** — skip entirely. Already fully handled.
 - **`Status: waiting for PR review`** — no action needed here; the PR Review Loop (section E) handles merged PRs.
-- **`Status: waiting for user`** — skip. A comment was already posted on Jira. Do **not** comment again until the issue has new activity (a reply, status change, or new comment since the "Blocked since" timestamp).
+- **`Status: waiting for user`** — skip. A comment was already posted on Jira. Do **not** comment again until the issue has new activity (a reply, status change, or new comment since the "Blocked since" timestamp). If the issue lacks the `blocked` label, add it before stopping (`jira.sh label $TASK_KEY add blocked`) — an unlabelled block gets re-run every 30 min.
 - **`Status: in progress — addressing PR feedback`** — resume this work first.
 - **`Status: in progress`** — resume this work before picking up new issues.
 

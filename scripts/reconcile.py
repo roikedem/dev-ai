@@ -114,6 +114,17 @@ def assigned_to_agent(key):
     # hands it to the Team Manager instead.
     if "blocked" in (d["fields"].get("labels") or []):
         return False
+    # Same, for an agent that recorded the block only in its context file and
+    # never labelled it (PAN-42/PAN-236/TRIP-123/FT-12, 25.10.2026: re-run every
+    # 30 min for hours, each run "still waiting on you"). A reply from Roi still
+    # reaches the agent as a jira_comment task. Backfill the label so the
+    # watchdog hands it to the Team Manager.
+    ctx = Path.home() / "dev-context" / key / "context.txt"
+    if ctx.exists() and re.search(r"^##\s*Status:\s*waiting for user", ctx.read_text(),
+                                  re.M | re.I):
+        if not DRY:
+            sh(f'bash "{DEV_AI}/scripts/jira.sh" label "{key}" add blocked')
+        return False
     a = d["fields"].get("assignee") or {}
     return a.get("accountId") == _AGENT_ID
 
