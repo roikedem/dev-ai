@@ -105,9 +105,18 @@ def assigned_to_agent(key):
     if _AGENT_ID is None:
         me = jira_get("myself")
         _AGENT_ID = (me or {}).get("accountId", "")
-    d = jira_get(f"issue/{key}?fields=assignee,labels")
+    d = jira_get(f"issue/{key}?fields=assignee,labels,issuelinks")
     if not d or not _AGENT_ID:
         return True
+    # Same dependency gate as poll-jira.sh: a "Blocks" link carrying
+    # `outwardIssue` is a prerequisite, finished once it reaches Review/Done.
+    # Re-running before then only makes the agent stop and label it blocked
+    # again (FC-5, 25.10.2026: queued while FC-2/FC-3/FC-4 were unmerged).
+    for l in d["fields"].get("issuelinks") or []:
+        o = l.get("outwardIssue")
+        if (l.get("type") or {}).get("name") == "Blocks" and o and \
+                o["fields"]["status"]["name"] not in ("Review", "Done"):
+            return False
     # A `blocked` label (PROCESS-TASK 3b) means the agent is waiting on someone:
     # re-running it only re-reads context and exits (FC-1/FC-2, 25.10.2026: 10
     # one-minute runs in 5h while the bot lacked repo access). The watchdog
