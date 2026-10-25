@@ -15,6 +15,7 @@
 #   jira.sh link       <KEY> <URL> [TITLE]   — add a remote link (PR → Development panel)
 #   jira.sh links      <KEY>                 — list remote link URLs
 #   jira.sh jql        "<JQL>"               — search, print key + status + summary per line
+#   jira.sh label      <KEY> add|remove <L>  — add or remove one label (e.g. "blocked")
 #
 # Auth: reads ~/.config/atlassian-api-token (same as poll-jira.sh).
 
@@ -125,6 +126,13 @@ for l in json.load(sys.stdin): print(l.get("object",{}).get("url"))'
     echo "jira.sh: attached $(basename "$FILE") to $KEY"
     ;;
 
+  label)
+    KEY="${2:?Usage: jira.sh label <KEY> add|remove <LABEL>}"; OP="${3:?add|remove}"; L="${4:?label}"
+    case "$OP" in add|remove) ;; *) echo "jira.sh: label op must be add or remove" >&2; exit 1 ;; esac
+    api PUT "/issue/$KEY" -H "Content-Type: application/json" \
+      -d "{\"update\":{\"labels\":[{\"$OP\":\"$L\"}]}}" >/dev/null
+    echo "jira.sh: label $OP $L on $KEY"
+    ;;
   jql)
     JQL="${2:?Usage: jira.sh jql \"<JQL>\"}"
     ENC=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$JQL")

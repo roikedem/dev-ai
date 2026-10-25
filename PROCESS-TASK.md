@@ -205,9 +205,11 @@ If you are blocked — missing context, requires a decision, or beyond current s
    <one paragraph — what is missing or what decision is needed>
    ```
 
-3. Return to `{default_branch}` and stop. This session handles one task only.
+3. Label the issue `blocked`: `bash ~/projects/dev-ai/scripts/jira.sh label $TASK_KEY add blocked`. This stops the pipeline from re-running it, and the watchdog hands it to the Team Manager within 30 minutes (many blockers — repo access, credentials, a missing config — the Team Manager fixes without Roi).
 
-When checking this issue in future sessions — only act if there is new activity (a reply or status change since the "Blocked since" timestamp). Otherwise skip it entirely.
+4. Return to `{default_branch}` and stop. This session handles one task only.
+
+When checking this issue in future sessions — only act if there is new activity (a reply or status change since the "Blocked since" timestamp). Otherwise skip it entirely. When you do resume, first remove the label: `jira.sh label $TASK_KEY remove blocked`.
 
 ---
 

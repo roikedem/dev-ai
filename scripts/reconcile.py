@@ -105,9 +105,15 @@ def assigned_to_agent(key):
     if _AGENT_ID is None:
         me = jira_get("myself")
         _AGENT_ID = (me or {}).get("accountId", "")
-    d = jira_get(f"issue/{key}?fields=assignee")
+    d = jira_get(f"issue/{key}?fields=assignee,labels")
     if not d or not _AGENT_ID:
         return True
+    # A `blocked` label (PROCESS-TASK 3b) means the agent is waiting on someone:
+    # re-running it only re-reads context and exits (FC-1/FC-2, 25.10.2026: 10
+    # one-minute runs in 5h while the bot lacked repo access). The watchdog
+    # hands it to the Team Manager instead.
+    if "blocked" in (d["fields"].get("labels") or []):
+        return False
     a = d["fields"].get("assignee") or {}
     return a.get("accountId") == _AGENT_ID
 

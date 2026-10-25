@@ -41,6 +41,11 @@ INPROGRESS_STUCK_MIN = 480     # In Progress this long => stalled or blocked.
                                # ran 40h and shipped fine), so 90m flagged healthy
                                # builds every night. 8h is past any normal build.
 RE_ALERT_HOURS       = 24      # don't re-nag a still-stuck issue before this
+BLOCKED_MIN          = 30      # a blocked ticket goes to the Team Manager after this.
+                               # 25.10.2026: FC-1/FC-2 sat ~5h "waiting for Roi" on a
+                               # repo-access problem the TM fixed in a minute, unseen
+                               # because the 8h In Progress limit had not passed.
+TM_ALERT_DIR = os.path.join(os.path.expanduser("~"), "projects/team/logs/supervisor-alerts")
 
 HOME        = os.path.expanduser("~")
 DEV_AI      = os.path.join(HOME, "projects/dev-ai")
@@ -139,6 +144,78 @@ def find_stuck():
     return stuck
 
 
+def adf_text(node):
+    if isinstance(node, dict):
+        if node.get("type") == "text":
+            return node.get("text", "")
+        if node.get("type") == "mention":
+            return (node.get("attrs") or {}).get("text", "") + " "
+        return "".join(adf_text(c) for c in node.get("content", []) or [])
+    if isinstance(node, list):
+        return "".join(adf_text(c) for c in node)
+    return node if isinstance(node, str) else ""
+
+
+def find_blocked():
+    """Agent tickets waiting on someone: labelled `blocked` (PROCESS-TASK 3b), or —
+    for an agent that forgot the label — whose newest comment is the agent's own,
+    mentions Roi, and is older than BLOCKED_MIN with no PR attached."""
+    self_id = api("/myself")["accountId"]
+    out = []
+    for key in enabled_projects():
+        jql = (f'project={key} AND assignee="{self_id}" '
+               f'AND status in ("To Do","In Progress")')
+        try:
+            res = api(f"/search/jql?jql={urllib.parse.quote(jql)}&maxResults=50"
+                      "&fields=summary,status,labels,comment")
+        except Exception as e:
+            print(f"watchdog: blocked query failed for {key}: {e}", file=sys.stderr)
+            continue
+        for it in res.get("issues", []):
+            f = it["fields"]
+            comments = (f.get("comment") or {}).get("comments", [])
+            last = comments[-1] if comments else None
+            labelled = "blocked" in (f.get("labels") or [])
+            asked = (last and last["author"]["accountId"] == self_id
+                     and "@Roi" in adf_text(last.get("body")))
+            if not (labelled or asked):
+                continue
+            if last and minutes_since(last["created"]) < BLOCKED_MIN:
+                continue
+            if not labelled and has_pr(it["key"]):
+                continue
+            why = adf_text(last.get("body"))[:500] if last else "(no comment)"
+            out.append({"key": it["key"], "status": f["status"]["name"],
+                        "summary": f.get("summary", ""), "labelled": labelled,
+                        "why": why, "since": last["created"] if last else ""})
+    return out
+
+
+def alert_tm_blocked(items, state):
+    """Hand newly blocked tickets to the Team Manager (same drop dir the Supervisor
+    uses; supervisor-alerts.sh runs a headless TM on it). Once per ticket per block."""
+    new = {}
+    for i in items:
+        sk = "blocked:" + i["key"]
+        if state.get(sk) == i["since"]:
+            continue
+        state[sk] = i["since"]
+        new[sk] = (f'{i["key"]} ({i["status"]}, "{i["summary"]}") is blocked'
+                   f'{" [label]" if i["labelled"] else " [agent asked Roi, no label]"}'
+                   f' — {BROWSE}{i["key"]} — agent wrote: {i["why"]}')
+    if not new or DRY:
+        if new:
+            print("=== DRY RUN blocked ===\n" + json.dumps(new, indent=2, ensure_ascii=False))
+        return
+    os.makedirs(TM_ALERT_DIR, exist_ok=True)
+    name = datetime.now().strftime("%Y-%m-%dT%H-%M-%S") + "-blocked.json"
+    tmp = os.path.join(TM_ALERT_DIR, "." + name)
+    json.dump({"source": "pipeline-watchdog", "new": new}, open(tmp, "w"),
+              indent=2, ensure_ascii=False)
+    os.rename(tmp, os.path.join(TM_ALERT_DIR, name))
+    print("watchdog: blocked → Team Manager:", ", ".join(new))
+
+
 def load_state():
     try:
         return json.load(open(STATE_FILE))
@@ -164,6 +241,11 @@ def build_log_line(items):
 def main():
     stuck = find_stuck()
     state = load_state()
+    blocked_state = state.pop("_blocked", {})
+    blocked = find_blocked()
+    alert_tm_blocked(blocked, blocked_state)
+    live = {"blocked:" + b["key"] for b in blocked}
+    blocked_state = {k: v for k, v in blocked_state.items() if k in live}
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
 
@@ -186,6 +268,7 @@ def main():
     if not to_alert:
         print(f"watchdog: {len(stuck)} stuck, 0 new/due — nothing to log")
         if not DRY:
+            new_state["_blocked"] = blocked_state
             json.dump(new_state, open(STATE_FILE, "w"), indent=2)
         return
 
@@ -197,6 +280,7 @@ def main():
 
     subprocess.run([os.path.join(HOME, "projects/team/scripts/log.sh"),
                     "Project Manager", "WARN", line], check=False)
+    new_state["_blocked"] = blocked_state
     json.dump(new_state, open(STATE_FILE, "w"), indent=2)
     print("watchdog: logged", ", ".join(i["key"] for i in to_alert))
 
