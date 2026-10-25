@@ -48,6 +48,11 @@ Claude processes **one task per session**. After finishing, it exits and the nex
 
 ## Per-Project Configuration
 
+**New project checklist** (FC, 25.10.2026: the first two tickets sat a day because the bot could not see the private repo):
+1. `gh api -X PUT repos/<owner>/<repo>/collaborators/ClaudeCodeRoiAgent -f permission=push`, then accept the invitation with the bot token (`GH_TOKEN=$(cat ~/.config/claude-agent-gh-token) gh api -X PATCH user/repository_invitations/<id>`). Verify `gh api repos/<owner>/<repo> --jq .permissions.push` is true as the bot.
+2. `.jira-process.json` in the repo; the project in `~/.config/dev-ai.json`.
+3. Pipeline runtime files ignored (`logs/`, `.claude-*.lock`).
+
 Each target project needs a `.jira-process.json` file with placeholders that `PROCESS-TASK.md` and `JIRA-PROCESS.md` reference:
 
 ```json
