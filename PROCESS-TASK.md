@@ -46,7 +46,7 @@ Then verify: `gh api user --jq .login` must return `ClaudeCodeRoiAgent`. If it r
 Before doing anything else, read `$TASK_CONTEXT_FILE` if it exists.
 
 - **`Status: done`** — skip entirely. Already fully handled.
-- **`Status: waiting for PR review`** — no action needed here; the PR Review Loop (section E) handles merged PRs.
+- **`Status: waiting for PR review`** — first check the PR's labels (`gh pr view <N> --repo {repo} --json state,labels`). On an **auto-merge repo**, if the PR is still OPEN and has none of `reviewed-ok` / `reviewed-pending-sibling` / `danger`, the previous session exited before finishing (the Exit Checklist failed) and this is **not** a wait state: the reconciler requeued you to finish it. Resume: run the testing phase per `TESTING.md` if no test evidence exists, then the review-and-approve step (PR Review → step F), then the Exit Checklist. Exiting with "nothing to do" here loops forever (TRIP-250, 26.10: three empty requeues). Otherwise (labelled, merged, or a manual-review repo) — no action needed; the PR Review Loop (section E) handles merged PRs.
 - **`Status: waiting for user`** — skip. A comment was already posted on Jira. Do **not** comment again until the issue has new activity (a reply, status change, or new comment since the "Blocked since" timestamp). If the issue lacks the `blocked` label, add it before stopping (`jira.sh label $TASK_KEY add blocked`) — an unlabelled block gets re-run every 30 min.
 - **`Status: in progress — addressing PR feedback`** — resume this work first.
 - **`Status: in progress`** — resume this work before picking up new issues.
