@@ -174,6 +174,10 @@ def find_blocked():
         for it in res.get("issues", []):
             f = it["fields"]
             comments = (f.get("comment") or {}).get("comments", [])
+            # The TM posts as the same account; its triage note must not count as a
+            # new block, or every handled ticket re-alerts BLOCKED_MIN later (PAN-281).
+            comments = [c for c in comments
+                        if not adf_text(c.get("body")).lstrip().startswith("Team Manager:")]
             last = comments[-1] if comments else None
             labelled = "blocked" in (f.get("labels") or [])
             asked = (last and last["author"]["accountId"] == self_id
