@@ -142,7 +142,8 @@ IDLE=0
 # "Roi Kedem"), so if the agent used it to comment, the comment posted under
 # Roi's name. Forcing strict config makes it unavailable — the agent must use
 # jira.sh (its own token, "Claude Code Roi's Agent") for all Jira writes.
-"$CLAUDE" --model sonnet --dangerously-skip-permissions --output-format json \
+RUN_ID="$$-$(date +%s)"
+DEV_AI_RUN_ID="$RUN_ID" "$CLAUDE" --model sonnet --dangerously-skip-permissions --output-format json \
     --strict-mcp-config \
     --mcp-config "$DEV_AI_ROOT/config/playwright-mcp.json" \
     -p "Follow the Entry Point section in $DEV_AI_ROOT/PROCESS-TASK.md." \
@@ -166,6 +167,16 @@ done
 
 wait "$CLAUDE_PID"
 EXIT=$?
+
+# Anything the run left behind dies with it. 6.11: FC-29's `next dev` (2.2 GB)
+# outlived its run and, with Playwright Chrome, drove the box into OOM kills and
+# a 16-min cron stall. Docker containers don't carry the marker and are kept.
+for p in /proc/[0-9]*; do
+    if grep -qzx "DEV_AI_RUN_ID=$RUN_ID" "$p/environ" 2>/dev/null; then
+        kill "${p#/proc/}" 2>/dev/null && log "killed leftover process ${p#/proc/} from this run"
+    fi
+done
+
 rm -f "$MARK"
 CLAUDE_OUTPUT=$(cat "$CLAUDE_OUTFILE")
 rm -f "$CLAUDE_OUTFILE"
