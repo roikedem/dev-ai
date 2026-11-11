@@ -292,8 +292,34 @@ def requeue_developer(pdir, key, comment_id, text):
         raise RuntimeError(f"queue push failed: {r.stderr[-200:]}")
 
 
+def handoff_roi_comment(key, pdir, fields, me):
+    """Roi assigns a Review ticket back to the agent with a comment and often leaves
+    the status at Review. That comment is work for the developer, not a proof to
+    judge: reviewing it reassigned the ticket to Roi and his comment was never
+    handled (PAN-290, 11.11). So when the newest comment is a human's, move the
+    ticket to In Progress, queue the developer on that comment, and tell Roi."""
+    comments = fields.get("comment", {}).get("comments", [])
+    if not comments or (comments[-1].get("author") or {}).get("accountId") == me:
+        return False
+    last = comments[-1]
+    transition(key, "In Progress")
+    requeue_developer(pdir, key, last["id"], adf_text(last.get("body")))
+    jira("POST", f"issue/{key}/comment", {"body": comment_adf(
+        "Reviewer: this ticket was in Review, but your latest comment asks for more work, "
+        "so I did not review it. I moved it to In Progress and queued the developer on "
+        "your comment.")})
+    log(f"{key}: newest comment is Roi's — moved to In Progress, developer queued, no review")
+    return True
+
+
 def act(key, pdir, fields, final, verdict):
-    prior = sum(1 for c in fields.get("comment", {}).get("comments", [])
+    # Count rejections since Roi last handed the ticket back with a comment: new
+    # work from him starts a fresh round of proof.
+    comments = fields.get("comment", {}).get("comments", [])
+    me = (fields.get("assignee") or {}).get("accountId")
+    since = max((i for i, c in enumerate(comments)
+                 if (c.get("author") or {}).get("accountId") != me), default=-1)
+    prior = sum(1 for c in comments[since + 1:]
                 if adf_text(c.get("body")).startswith(TAG_REJECT))
     if final == "pass":
         jira("POST", f"issue/{key}/comment", {"body": comment_adf(verdict_comment(TAG_ACCEPT, verdict))})
@@ -353,6 +379,8 @@ def review(key, pdir, repos, me=None):
         if status != "Review" or assignee != me:
             log(f"{key}: skipped — no longer Review+agent (status={status})")
             return
+    if me and not DRY and handoff_roi_comment(key, pdir, fields, me):
+        return
     with tempfile.TemporaryDirectory(prefix=f"review-{key}-") as tmp:
         workdir = Path(tmp)
         evidence, _ = build_pack(key, fields, repos, workdir)
