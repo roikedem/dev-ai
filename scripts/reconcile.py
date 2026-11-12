@@ -134,8 +134,27 @@ def assigned_to_agent(key):
         if not DRY:
             sh(f'bash "{DEV_AI}/scripts/jira.sh" label "{key}" add blocked')
         return False
+    # An open Roi-queue item for this ticket (source_key jira-blocked:<KEY>) means
+    # the Team Manager already handed the blocker to Roi, even if the label was
+    # removed. Re-running only exits "waiting on Roi" (SNAP-2, 12.11.2026: label
+    # dropped after triage, requeued every 30 min).
+    if roi_queue_blocked(key):
+        return False
     a = d["fields"].get("assignee") or {}
     return a.get("accountId") == _AGENT_ID
+
+
+ROI_QUEUE = HOME / "projects" / "team" / "agents" / "team-manager" / "roi-queue.json"
+
+
+def roi_queue_blocked(key):
+    """True if Roi's queue holds an open item keyed jira-blocked:<key>."""
+    try:
+        items = json.loads(ROI_QUEUE.read_text()).get("items", [])
+    except (OSError, ValueError):
+        return False
+    return any(i.get("source_key") == f"jira-blocked:{key}" and
+               i.get("state") == "open" for i in items)
 
 
 def jira_transition_to_review(key):
