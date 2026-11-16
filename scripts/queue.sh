@@ -82,6 +82,16 @@ DIR="$(sq "$PROJECT_DIR")"
 case "$OPERATION" in
   push)
     JSON="${3:?Missing json argument for push}"
+    # A task pushed to a directory no worker polls is never popped and nothing
+    # reports it (PAN-297, 16.11.2026: requeued to ~/projects/pandit while the
+    # pipeline checkout is ~/projects/pandit9 — sat "queued" until the watchdog
+    # re-alerted). Refuse any directory that is not a configured project.
+    DEV_CONFIG="$HOME/.config/dev-ai.json"
+    if [ -f "$DEV_CONFIG" ] && ! jq -e --arg d "${PROJECT_DIR%/}" \
+         '[.projects[].dir | sub("/$"; "")] | index($d)' "$DEV_CONFIG" >/dev/null 2>&1; then
+      echo "queue.sh push: '$PROJECT_DIR' is not a pipeline project dir. Configured: $(jq -r '[.projects[].dir] | join(", ")' "$DEV_CONFIG")" >&2
+      exit 1
+    fi
     DEDUP_KEY="${4:-}"
     TASK_TYPE=$(echo "$JSON"   | jq -r '.type                                          // ""')
     TASK_KEY=$(echo "$JSON"    | jq -r '.key                                           // ""')

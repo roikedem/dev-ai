@@ -130,7 +130,7 @@ def assigned_to_agent(key):
     # watchdog hands it to the Team Manager.
     ctx = Path.home() / "dev-context" / key / "context.txt"
     if ctx.exists() and re.search(r"^##\s*Status:\s*waiting for user", ctx.read_text(),
-                                  re.M | re.I):
+                                  re.M | re.I) and not tm_answered(key):
         if not DRY:
             sh(f'bash "{DEV_AI}/scripts/jira.sh" label "{key}" add blocked')
         return False
@@ -142,6 +142,17 @@ def assigned_to_agent(key):
         return False
     a = d["fields"].get("assignee") or {}
     return a.get("accountId") == _AGENT_ID
+
+
+def tm_answered(key):
+    """True if the newest comment on the ticket is the Team Manager's ruling
+    (it posts as the agent account, prefixed "Team Manager:"). The context file
+    still says "waiting for user" until the agent's next run rewrites it, so the
+    backfill above re-labelled a ticket the TM had just unblocked and requeued
+    (PAN-297, 16.11.2026: label removed 15:14, re-added 15:37, alerted again)."""
+    d = jira_get(f"issue/{key}/comment?orderBy=-created&maxResults=1")
+    cs = (d or {}).get("comments") or []
+    return bool(cs) and "Team Manager:" in json.dumps(cs[0].get("body"))[:400]
 
 
 ROI_QUEUE = HOME / "projects" / "team" / "agents" / "team-manager" / "roi-queue.json"
