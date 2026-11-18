@@ -195,6 +195,26 @@ def find_blocked():
     return out
 
 
+ROI_QUEUE = os.path.join(HOME, "projects/team/agents/team-manager/roi-queue.json")
+
+
+def queued_for_roi(key, since):
+    """True when the Team Manager already filed this block with Roi (open roi-queue
+    item jira-blocked:<KEY>, created after the agent's blocking comment). The dedup
+    state is per box, so after an HA master swap every standing block looked new and
+    was handed to the TM again (18.11.2026, TRIP-264); the queue travels with the repo."""
+    try:
+        for it in json.load(open(ROI_QUEUE)).get("items", []):
+            if (it.get("source_key") == "jira-blocked:" + key
+                    and it.get("state") == "open" and since
+                    and datetime.fromisoformat(it["created_at"])
+                        >= datetime.strptime(since, "%Y-%m-%dT%H:%M:%S.%f%z")):
+                return True
+    except Exception as e:
+        print("watchdog: roi-queue unreadable, not deduping on it:", e)
+    return False
+
+
 def alert_tm_blocked(items, state):
     """Hand newly blocked tickets to the Team Manager (same drop dir the Supervisor
     uses; supervisor-alerts.sh runs a headless TM on it). Once per ticket per block."""
@@ -204,6 +224,8 @@ def alert_tm_blocked(items, state):
         if state.get(sk) == i["since"]:
             continue
         state[sk] = i["since"]
+        if queued_for_roi(i["key"], i["since"]):
+            continue
         new[sk] = (f'{i["key"]} ({i["status"]}, "{i["summary"]}") is blocked'
                    f'{" [label]" if i["labelled"] else " [agent asked Roi, no label]"}'
                    f' — {BROWSE}{i["key"]} — agent wrote: {i["why"]}')
