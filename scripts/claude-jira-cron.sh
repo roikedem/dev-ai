@@ -131,6 +131,25 @@ mkdir -p "$TASK_CONTEXT_DIRECTORY"
 GH_USER=$(GH_TOKEN="$GH_TOKEN" gh api user --jq .login 2>/dev/null || echo "unknown")
 log "starting claude — task: $TASK_TYPE ${TASK_KEY}${TASK_PR_NUMBER} — gh user: $GH_USER ($CLAUDE)"
 
+# Make room before the run. 24.11: an ssnnaapp run (`next dev` 1.5 GB + Playwright
+# Chrome) on a 7 GB box with 4 GB swap already full of idle DDEV databases
+# (knesset-events mysqld alone held 1.2 GB) ended in OOM kills of cron and
+# 10-minute dispatcher stalls. When memory + swap headroom is short, stop the
+# DDEV projects this run does not belong to; `ddev start` brings one back.
+HEADROOM_MB=$(awk '/^MemAvailable:|^SwapFree:/ {s+=$2} END {print int(s/1024)}' /proc/meminfo)
+if [ "${HEADROOM_MB:-9999}" -lt "${DEV_AI_MIN_HEADROOM_MB:-3000}" ] && command -v ddev >/dev/null; then
+    ddev list -j 2>/dev/null | python3 -c '
+import json, sys
+for p in json.load(sys.stdin).get("raw") or []:
+    if p.get("status") == "running":
+        print(p["name"] + "\t" + p["approot"])' 2>/dev/null |
+    while IFS=$'\t' read -r DDEV_NAME DDEV_ROOT; do
+        case "$DDEV_ROOT/" in "$REPO_ROOT"/*) continue ;; esac
+        timeout 120 ddev stop "$DDEV_NAME" >/dev/null 2>&1 \
+            && log "low memory (${HEADROOM_MB} MB headroom): stopped idle DDEV project $DDEV_NAME"
+    done
+fi
+
 CLAUDE_OUTFILE=$(mktemp /tmp/claude-output-XXXXXX)
 IDLE_TIMEOUT=900  # 15 minutes
 WATCH_DIR="$HOME/dev-context"
